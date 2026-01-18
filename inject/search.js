@@ -135,7 +135,7 @@ window.__wx_channels_search_collector = {
     };
 
     if (tryInject()) return;
-    var observer = new MutationObserver(function(mutations, obs) {
+    var observer = new MutationObserver(function(_mutations, obs) {
       if (tryInject()) { obs.disconnect(); }
     });
     observer.observe(document.body, { childList: true, subtree: true });
@@ -358,40 +358,6 @@ window.__wx_channels_search_collector = {
           (fileSize ? '<span>' + fileSize + '</span>' : '') +
           (publishTime ? '<span>' + publishTime + '</span>' : '') +
           (item.nickname ? '<span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:100px;">@' + item.nickname + '</span>' : '') +
-        '</div>' +
-      '</div>';
-  },
-
-  // 创建账号项HTML
-  createAccountItemHTML: function(item, isSelected) {
-    var avatarUrl = item.headUrl || item.avatar || '';
-    // 账号不显示复选框，只显示信息
-    return '<div style="width:50px;height:50px;border-radius:50%;overflow:hidden;background:#1a1a1a;flex-shrink:0;">' +
-        (avatarUrl ? '<img src="' + avatarUrl + '" style="width:100%;height:100%;object-fit:cover;" />' : '<div style="width:100%;height:100%;display:flex;align-items:center;justify-content:center;color:#666;font-size:12px;">头像</div>') +
-      '</div>' +
-      '<div style="flex:1;min-width:0;display:flex;flex-direction:column;gap:4px;">' +
-        '<div style="display:flex;align-items:center;gap:6px;">' +
-          '<span style="font-size:13px;color:#fff;">' + (item.nickname || '未知账号') + '</span>' +
-        '</div>' +
-        '<div style="font-size:11px;color:#999;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">' + (item.desc || item.description || item.signature || '无简介') + '</div>' +
-      '</div>';
-  },
-
-  // 创建直播项HTML
-  createLiveItemHTML: function(item, isSelected) {
-    var coverUrl = item.coverUrl || item.thumbUrl || '';
-    var title = item.description || item.title || '直播中';
-    var nickname = item.nickname || '';
-    
-    return '<input type="checkbox" ' + (isSelected ? 'checked' : '') + ' style="margin-top:4px;cursor:pointer;flex-shrink:0;" />' +
-      '<div style="width:60px;height:40px;border-radius:4px;overflow:hidden;background:#1a1a1a;flex-shrink:0;position:relative;">' +
-        (coverUrl ? '<img src="' + coverUrl + '" style="width:100%;height:100%;object-fit:cover;" />' : '<div style="width:100%;height:100%;display:flex;align-items:center;justify-content:center;color:#666;font-size:12px;">无封面</div>') +
-        '<div style="position:absolute;top:4px;left:4px;background:#fa5151;color:#fff;font-size:10px;padding:2px 4px;border-radius:2px;">直播</div>' +
-      '</div>' +
-      '<div style="flex:1;min-width:0;display:flex;flex-direction:column;gap:4px;">' +
-        '<div style="font-size:13px;color:#fff;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;line-height:1.4;">' + title + '</div>' +
-        '<div style="display:flex;gap:8px;font-size:11px;color:#999;flex-wrap:wrap;">' +
-          (nickname ? '<span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:100px;">@' + nickname + '</span>' : '') +
         '</div>' +
       '</div>';
   },

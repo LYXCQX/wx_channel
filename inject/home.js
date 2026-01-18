@@ -9,7 +9,7 @@ var __home_slide_observer__ = null;
 var __home_first_load__ = true;
 var __current_tab__ = 'unknown';
 var __current_tab_type__ = 'unknown'; // video-player, video-list, live-list
-var __category_feeds_cache__ = {}; // 缓存各分类的完整视频数据（在事件监听器中初始化）
+var __category_feeds_cache__ = {}; // 缓存各分类的完整视频数据
 
 // ==================== 分类视频列表弹窗 ====================
 // 使用通用批量下载组件
@@ -242,7 +242,7 @@ async function __insert_download_btn_to_home_page() {
 
   // 如果失败，使用 MutationObserver 监听 DOM 变化
   return new Promise(function(resolve) {
-    var observer = new MutationObserver(function(mutations, obs) {
+    var observer = new MutationObserver(function(_mutations, obs) {
       if (tryInject()) {
         obs.disconnect();
         resolve(true);
@@ -488,8 +488,6 @@ if (WXE.onSearchResultLoaded) {
 
 // 新增：监听分类视频列表加载（首页、美食、生活等分类tab）
 if (WXE.onCategoryFeedsLoaded) {
-  var __category_feeds_cache__ = {}; // 缓存各分类的完整视频数据
-  
   WXE.onCategoryFeedsLoaded(function(data) {
     // data 包含 {feeds: [], params: {}}
     var feeds = data.feeds || data; // 兼容旧格式
