@@ -62,9 +62,9 @@ window.__wx_channels_profile_collector = {
         if (window.__wx_batch_download_manager__ && window.__wx_batch_download_manager__.isVisible) {
           __close_batch_download_ui__();
         } else {
-          // 显示批量下载UI
+          // 显示批量下载UI（包含视频和直播回放）
           var filteredVideos = self.filterLivePictureVideos(self.videos).filter(function(v) {
-            return v && v.type === 'media';
+            return v && (v.type === 'media' || v.type === 'live');
           });
           
           if (filteredVideos.length === 0) {
@@ -143,7 +143,7 @@ window.__wx_channels_profile_collector = {
       // 每10个视频发送一次日志
       var filteredVideos = this.filterLivePictureVideos(this.videos);
       var videoCount = filteredVideos.filter(function(v) { return v && v.type === 'media'; }).length;
-      var liveReplayCount = filteredVideos.filter(function(v) { return v && v.type === 'live_replay'; }).length;
+      var liveReplayCount = filteredVideos.filter(function(v) { return v && v.type === 'live'; }).length;
 
       if (videoCount > 0 && videoCount % 10 === 0 && videoCount !== this._lastTipVideoCount) {
         this._lastTipVideoCount = videoCount;
@@ -152,10 +152,10 @@ window.__wx_channels_profile_collector = {
         __wx_log({ msg: msg });
       }
 
-      // 更新UI（使用通用批量下载组件）
+      // 更新UI（使用通用批量下载组件，包含视频和直播回放）
       if (window.__wx_batch_download_manager__ && window.__wx_batch_download_manager__.isVisible) {
         var filteredVideos = this.filterLivePictureVideos(this.videos).filter(function(v) {
-          return v && v.type === 'media';
+          return v && (v.type === 'media' || v.type === 'live');
         });
         __update_batch_download_ui__(filteredVideos, 'Profile - 视频列表');
       }
