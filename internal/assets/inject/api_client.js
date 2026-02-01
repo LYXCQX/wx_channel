@@ -195,12 +195,22 @@ window.__wx_api_client = {
         return;
       }
 
-      // 搜索账号
       if (key === 'key:channels:contact_list') {
+        // Correct Scene Mapping:
+        // Type 1 (User): Scene 13 → infoList (supports pagination)
+        // Type 2 (Live): Scene 13 → objectList (NO pagination support)
+        // Type 3 (Video): Scene 19 → objectList (supports pagination)
+        var scene = 13; // Default to Scene 13 for Type 1 and Type 2
+        if (body.type == 3) {
+          scene = 19; // Only Type 3 (Video) uses Scene 19
+        }
+
         var payload = {
           query: body.keyword,
-          scene: 19,
-          requestId: String(new Date().valueOf())
+          scene: scene,
+          requestId: String(new Date().valueOf()), // Unique request ID for every page
+          lastBuffer: body.next_marker ? decodeURIComponent(body.next_marker) : '',
+          lastBuff: body.next_marker ? decodeURIComponent(body.next_marker) : '', // Try alias
         };
         var r = await window.WXU.API2.finderSearch(payload);
         console.log('[API客户端] finderSearch 结果:', r);
