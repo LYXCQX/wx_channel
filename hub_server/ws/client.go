@@ -49,9 +49,19 @@ func (c *Client) ReadPump() {
 	c.Conn.SetReadLimit(10 * 1024 * 1024)
 
 	for {
-		_, message, err := c.Conn.ReadMessage()
+		messageType, message, err := c.Conn.ReadMessage()
 		if err != nil {
 			break
+		}
+
+		// 如果是二进制消息，说明是压缩数据，先解压
+		if messageType == websocket.BinaryMessage {
+			decompressed, err := c.decompressData(message)
+			if err != nil {
+				log.Printf("解压失败: %v", err)
+				continue
+			}
+			message = decompressed
 		}
 
 		var msg CloudMessage
@@ -67,16 +77,6 @@ func (c *Client) handleMessage(msg CloudMessage) {
 	c.mu.Lock()
 	c.LastSeen = time.Now()
 	c.mu.Unlock()
-
-	// 如果消息被压缩，先解压
-	if msg.Compressed {
-		decompressed, err := c.decompressData(msg.Payload)
-		if err == nil {
-			msg.Payload = decompressed
-		} else {
-			log.Printf("解压失败: %v", err)
-		}
-	}
 
 	switch msg.Type {
 	case MsgTypeHeartbeat:

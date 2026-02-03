@@ -315,15 +315,36 @@ func (c *Connector) send(msg CloudMessage) error {
 		return fmt.Errorf("connection closed")
 	}
 
+	// 1. 序列化消息
 	data, err := json.Marshal(msg)
 	if err != nil {
 		return err
 	}
 
-	// 压缩功能已禁用（有 bug）
-	
+	originalSize := len(data)
+	messageType := websocket.TextMessage
+
+	// 2. 如果启用压缩且数据大于阈值，则压缩
+	if c.cfg.CompressionEnabled && originalSize > c.cfg.CompressionThreshold {
+		compressed, err := c.compressData(data)
+		if err == nil && len(compressed) < originalSize {
+			// 压缩成功且有效果
+			data = compressed
+			messageType = websocket.BinaryMessage // 使用二进制消息类型标识压缩数据
+			
+			// 记录压缩指标
+			metrics.CompressionBytesIn.Add(float64(originalSize))
+			metrics.CompressionBytesOut.Add(float64(len(compressed)))
+			
+			compressionRate := float64(originalSize-len(compressed)) / float64(originalSize) * 100
+			utils.LogInfo("数据压缩: %d -> %d 字节 (压缩率: %.1f%%)", 
+				originalSize, len(compressed), compressionRate)
+		}
+	}
+
+	// 3. 发送数据
 	metrics.WSMessagesSent.WithLabelValues(string(msg.Type)).Inc()
-	return c.conn.WriteMessage(websocket.TextMessage, data)
+	return c.conn.WriteMessage(messageType, data)
 }
 
 // compressData 压缩数据

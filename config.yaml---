@@ -18,3 +18,7 @@ show_log_button: true
 # Prometheus 监控配置
 metrics_enabled: true
 metrics_port: 9090
+
+# 数据压缩配置
+compression_enabled: true
+compression_threshold: 1024  # 1KB
