@@ -28,7 +28,8 @@
         <strong>{{ client.hostname }}</strong>
       </div>
       <div v-else class="px-4 py-2 rounded-xl bg-yellow-50 border border-yellow-200 text-yellow-700 text-sm flex items-center gap-2">
-        <span>⚡ 自动选择设备</span>
+        <Zap class="w-4 h-4" />
+        <span>自动选择设备</span>
       </div>
     </header>
 
@@ -90,6 +91,7 @@ import { ref, computed, onMounted } from 'vue'
 import { useClientStore } from '../store/client'
 import { useRouter, useRoute } from 'vue-router'
 import { formatTime, formatDuration } from '../utils/format'
+import { Zap } from 'lucide-vue-next'
 
 const clientStore = useClientStore()
 const router = useRouter()
