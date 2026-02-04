@@ -24,8 +24,8 @@
     <!-- Client Selector if none selected -->
     <div v-if="!client" class="p-12 text-center bg-white rounded-[2rem] shadow-card mb-8">
       <p class="text-text-muted mb-4">请先选择一个操作目标以播放视频</p>
-      <router-link to="/devices" class="inline-block px-6 py-3 rounded-full bg-bg shadow-neu-btn text-primary font-semibold hover:text-primary-dark transition-all active:shadow-neu-btn-active">
-          前往设备管理
+      <router-link to="/dashboard" class="inline-block px-6 py-3 rounded-full bg-bg shadow-neu-btn text-primary font-semibold hover:text-primary-dark transition-all active:shadow-neu-btn-active">
+          前往在线终端
       </router-link>
     </div>
 
@@ -181,8 +181,8 @@ const playVideo = async (video) => {
   try {
     // Check if client is connected
     if (!client.value) {
-      alert('请先在设备管理页面选择一个在线设备')
-      router.push('/devices')
+      alert('请先在在线终端页面选择一个操作目标')
+      router.push('/dashboard')
       return
     }
     
