@@ -19,15 +19,10 @@
         <span class="text-xs uppercase tracking-wider text-text-muted">Connected to</span>
         <strong>{{ client.hostname }}</strong>
       </div>
+      <div v-else class="px-4 py-2 rounded-xl bg-yellow-50 border border-yellow-200 text-yellow-700 text-sm flex items-center gap-2">
+        <span>⚡ 自动选择设备</span>
+      </div>
     </header>
-
-    <!-- Client Selector if none selected -->
-    <div v-if="!client" class="p-12 text-center bg-white rounded-[2rem] shadow-card mb-8">
-      <p class="text-text-muted mb-4">请先选择一个操作目标以播放视频</p>
-      <router-link to="/dashboard" class="inline-block px-6 py-3 rounded-full bg-bg shadow-neu-btn text-primary font-semibold hover:text-primary-dark transition-all active:shadow-neu-btn-active">
-          前往在线终端
-      </router-link>
-    </div>
 
     <div class="w-full">
         <!-- Loading State -->
@@ -179,19 +174,16 @@ const loadMoreVideos = () => {
 
 const playVideo = async (video) => {
   try {
-    // Check if client is connected
-    if (!client.value) {
-      alert('请先在在线终端页面选择一个操作目标')
-      router.push('/dashboard')
-      return
-    }
-    
     currentVideoTitle.value = video.title || '无标题'
     
     console.log('[PlayVideo] Video object:', video)
-    console.log('[PlayVideo] Using client:', client.value.id)
+    if (client.value) {
+      console.log('[PlayVideo] Using client:', client.value.id)
+    } else {
+      console.log('[PlayVideo] No client selected, backend will auto-select')
+    }
     
-    // Use clientStore.remoteCall to ensure client_id is passed
+    // Use clientStore.remoteCall - if no client selected, backend will auto-select
     const profileData = await clientStore.remoteCall('api_call', {
       key: 'key:channels:feed_profile',
       body: {

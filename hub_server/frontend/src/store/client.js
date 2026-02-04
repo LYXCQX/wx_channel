@@ -49,12 +49,11 @@ export const useClientStore = defineStore('client', {
 
         // 远程调用通用方法
         async remoteCall(action, payload) {
-            if (!this.currentClient) {
-                throw new Error("No client selected")
-            }
+            // 如果没有选中客户端，传递空 client_id，让后端自动选择
+            const clientId = this.currentClient ? this.currentClient.id : ''
 
             const res = await axios.post('/api/call', {
-                client_id: this.currentClient.id,
+                client_id: clientId,
                 action: action,
                 data: payload
             })
