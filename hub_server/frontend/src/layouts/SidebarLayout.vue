@@ -21,6 +21,14 @@
           <div class="w-10 h-10 rounded-xl bg-bg shadow-neu flex items-center justify-center text-primary font-bold">
             {{ userInitial }}
           </div>
+          <button
+            @click="handleLogout"
+            class="px-4 py-2 rounded-xl bg-bg shadow-neu hover:shadow-neu-sm text-slate-600 hover:text-red-600 transition-all flex items-center gap-2"
+            title="退出登录"
+          >
+            <component :is="LogOut" class="w-4 h-4" />
+            <span class="text-sm font-medium">退出</span>
+          </button>
         </div>
       </header>
 
@@ -34,11 +42,13 @@
 
 <script setup>
 import { computed } from 'vue'
-import { useRoute } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
 import Sidebar from '../components/Sidebar.vue'
 import { useUserStore } from '../store/user'
+import { LogOut } from 'lucide-vue-next'
 
 const route = useRoute()
+const router = useRouter()
 const userStore = useUserStore()
 
 const user = computed(() => userStore.user)
@@ -47,6 +57,11 @@ const userInitial = computed(() => {
   if (!user.value?.username) return 'G'
   return user.value.username.charAt(0).toUpperCase()
 })
+
+const handleLogout = () => {
+  userStore.logout()
+  router.push('/login')
+}
 
 const pageTitle = computed(() => {
   const titles = {
