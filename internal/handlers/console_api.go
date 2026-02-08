@@ -1368,47 +1368,28 @@ func (h *ConsoleAPIHandler) HandleVideoStream(w http.ResponseWriter, r *http.Req
 		return
 	}
 
-	// 安全检查：确保路径在允许的目录内
-	// 转换为绝对路径并检查是否存在
-	absPath, err := filepath.Abs(filePath)
-	if err != nil {
-		h.sendError(w, r, http.StatusBadRequest, "invalid path")
-		return
-	}
-
-	// 限制只允许访问下载目录内的文件，防止任意文件读取
 	downloadsDir, err := h.getConfig().GetResolvedDownloadsDir()
 	if err != nil {
 		h.sendError(w, r, http.StatusInternalServerError, "failed to resolve downloads directory")
 		return
 	}
-	absDownloadsDir, err := filepath.Abs(downloadsDir)
+	resolvedPath, err := validatePathInBase(downloadsDir, filePath, false)
 	if err != nil {
-		h.sendError(w, r, http.StatusInternalServerError, "failed to resolve downloads directory")
+		if pe, ok := err.(*pathValidationError); ok {
+			h.sendError(w, r, pe.status, pe.msg)
+			return
+		}
+		h.sendError(w, r, http.StatusInternalServerError, "failed to validate path")
 		return
 	}
-	if !isPathWithinBase(absDownloadsDir, absPath) {
-		h.sendError(w, r, http.StatusForbidden, "access to path outside downloads directory is forbidden")
-		return
-	}
-
-	// 检查文件是否存在
-	fileInfo, err := os.Stat(absPath)
-	if os.IsNotExist(err) {
-		h.sendError(w, r, http.StatusNotFound, "file not found")
-		return
-	}
+	fileInfo, err := os.Stat(resolvedPath)
 	if err != nil {
 		h.sendError(w, r, http.StatusInternalServerError, "failed to access file")
 		return
 	}
-	if fileInfo.IsDir() {
-		h.sendError(w, r, http.StatusBadRequest, "path is a directory")
-		return
-	}
 
 	// 打开文件
-	file, err := os.Open(absPath)
+	file, err := os.Open(resolvedPath)
 	if err != nil {
 		h.sendError(w, r, http.StatusInternalServerError, "failed to open file")
 		return
@@ -1416,7 +1397,7 @@ func (h *ConsoleAPIHandler) HandleVideoStream(w http.ResponseWriter, r *http.Req
 	defer file.Close()
 
 	// 根据文件扩展名确定内容类型
-	ext := strings.ToLower(filepath.Ext(absPath))
+	ext := strings.ToLower(filepath.Ext(resolvedPath))
 	contentType := "application/octet-stream"
 	switch ext {
 	case ".mp4":
@@ -1517,8 +1498,12 @@ func validatePathInBase(baseDir, targetPath string, allowDir bool) (string, erro
 	if err != nil {
 		return "", &pathValidationError{status: http.StatusInternalServerError, msg: "failed to resolve downloads directory"}
 	}
+	realBaseDir, err := filepath.EvalSymlinks(absBaseDir)
+	if err != nil {
+		realBaseDir = absBaseDir
+	}
 
-	if !isPathWithinBase(absBaseDir, absPath) {
+	if !isPathWithinBase(realBaseDir, absPath) {
 		return "", &pathValidationError{status: http.StatusForbidden, msg: "access to path outside downloads directory is forbidden"}
 	}
 
@@ -1533,7 +1518,15 @@ func validatePathInBase(baseDir, targetPath string, allowDir bool) (string, erro
 		return "", &pathValidationError{status: http.StatusBadRequest, msg: "path is a directory"}
 	}
 
-	return absPath, nil
+	realPath, err := filepath.EvalSymlinks(absPath)
+	if err != nil {
+		realPath = absPath
+	}
+	if !isPathWithinBase(realBaseDir, realPath) {
+		return "", &pathValidationError{status: http.StatusForbidden, msg: "access to path outside downloads directory is forbidden"}
+	}
+
+	return realPath, nil
 }
 
 func isAllowedVideoExtension(path string) bool {

@@ -191,6 +191,25 @@ func TestValidatePathInBase(t *testing.T) {
 	}
 }
 
+func TestValidatePathInBase_SymlinkEscapeBlocked(t *testing.T) {
+	baseDir := t.TempDir()
+	outsideDir := t.TempDir()
+	outsideFile := filepath.Join(outsideDir, "outside.mp4")
+	if err := os.WriteFile(outsideFile, []byte("x"), 0644); err != nil {
+		t.Fatalf("write outside file failed: %v", err)
+	}
+
+	linkPath := filepath.Join(baseDir, "escape.mp4")
+	if err := os.Symlink(outsideFile, linkPath); err != nil {
+		t.Skipf("symlink not available on this environment: %v", err)
+	}
+
+	_, err := validatePathInBase(baseDir, linkPath, false)
+	if err == nil {
+		t.Fatalf("expected symlink escape to be blocked")
+	}
+}
+
 func TestIsAllowedVideoExtension(t *testing.T) {
 	valid := []string{"a.mp4", "a.webm", "a.ogv", "a.avi", "a.mkv", "a.mov"}
 	for _, path := range valid {
