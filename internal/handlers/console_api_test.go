@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -136,5 +137,71 @@ func TestHandleVideoPlay_BlockedLocalAddress(t *testing.T) {
 	}
 	if !strings.Contains(resp.Error, "local/private") {
 		t.Fatalf("error = %q, want contains %q", resp.Error, "local/private")
+	}
+}
+
+func TestValidatePathInBase(t *testing.T) {
+	baseDir := t.TempDir()
+	insideFile := filepath.Join(baseDir, "video.mp4")
+	if err := os.WriteFile(insideFile, []byte("x"), 0644); err != nil {
+		t.Fatalf("write inside file failed: %v", err)
+	}
+
+	tests := []struct {
+		name      string
+		target    string
+		allowDir  bool
+		wantError bool
+	}{
+		{
+			name:      "file inside base",
+			target:    insideFile,
+			allowDir:  false,
+			wantError: false,
+		},
+		{
+			name:      "directory allowed",
+			target:    baseDir,
+			allowDir:  true,
+			wantError: false,
+		},
+		{
+			name:      "directory disallowed",
+			target:    baseDir,
+			allowDir:  false,
+			wantError: true,
+		},
+		{
+			name:      "path outside base",
+			target:    filepath.Join(filepath.Dir(baseDir), "outside.mp4"),
+			allowDir:  false,
+			wantError: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			_, err := validatePathInBase(baseDir, tt.target, tt.allowDir)
+			gotError := err != nil
+			if gotError != tt.wantError {
+				t.Fatalf("validatePathInBase(%q, %q, %v) error=%v, wantError=%v", baseDir, tt.target, tt.allowDir, err, tt.wantError)
+			}
+		})
+	}
+}
+
+func TestIsAllowedVideoExtension(t *testing.T) {
+	valid := []string{"a.mp4", "a.webm", "a.ogv", "a.avi", "a.mkv", "a.mov"}
+	for _, path := range valid {
+		if !isAllowedVideoExtension(path) {
+			t.Fatalf("expected allowed extension for %q", path)
+		}
+	}
+
+	invalid := []string{"a.exe", "a.txt", "a", "a.mp4.exe"}
+	for _, path := range invalid {
+		if isAllowedVideoExtension(path) {
+			t.Fatalf("expected disallowed extension for %q", path)
+		}
 	}
 }

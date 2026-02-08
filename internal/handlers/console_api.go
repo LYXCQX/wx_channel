@@ -62,6 +62,15 @@ type APIResponse struct {
 	Message string      `json:"message,omitempty"`
 }
 
+type pathValidationError struct {
+	status int
+	msg    string
+}
+
+func (e *pathValidationError) Error() string {
+	return e.msg
+}
+
 // sendJSON 发送 JSON 响应
 func (h *ConsoleAPIHandler) sendJSON(w http.ResponseWriter, r *http.Request, status int, data interface{}) {
 	w.Header().Set("Content-Type", "application/json")
@@ -1186,8 +1195,23 @@ func (h *ConsoleAPIHandler) HandleOpenFolder(w http.ResponseWriter, r *http.Requ
 		return
 	}
 
+	downloadsDir, err := h.getConfig().GetResolvedDownloadsDir()
+	if err != nil {
+		h.sendError(w, r, http.StatusInternalServerError, "failed to resolve downloads directory")
+		return
+	}
+	absPath, err := validatePathInBase(downloadsDir, req.Path, true)
+	if err != nil {
+		if pe, ok := err.(*pathValidationError); ok {
+			h.sendError(w, r, pe.status, pe.msg)
+			return
+		}
+		h.sendError(w, r, http.StatusInternalServerError, "failed to validate path")
+		return
+	}
+
 	// 在文件管理器中打开文件夹
-	if err := openFileExplorer(req.Path); err != nil {
+	if err := openFileExplorer(absPath); err != nil {
 		h.sendError(w, r, http.StatusInternalServerError, err.Error())
 		return
 	}
@@ -1210,8 +1234,27 @@ func (h *ConsoleAPIHandler) HandlePlayVideo(w http.ResponseWriter, r *http.Reque
 		return
 	}
 
+	downloadsDir, err := h.getConfig().GetResolvedDownloadsDir()
+	if err != nil {
+		h.sendError(w, r, http.StatusInternalServerError, "failed to resolve downloads directory")
+		return
+	}
+	absPath, err := validatePathInBase(downloadsDir, req.Path, false)
+	if err != nil {
+		if pe, ok := err.(*pathValidationError); ok {
+			h.sendError(w, r, pe.status, pe.msg)
+			return
+		}
+		h.sendError(w, r, http.StatusInternalServerError, "failed to validate path")
+		return
+	}
+	if !isAllowedVideoExtension(absPath) {
+		h.sendError(w, r, http.StatusBadRequest, "unsupported video file extension")
+		return
+	}
+
 	// 使用默认播放器播放视频
-	if err := openWithDefaultApp(req.Path); err != nil {
+	if err := openWithDefaultApp(absPath); err != nil {
 		h.sendError(w, r, http.StatusInternalServerError, err.Error())
 		return
 	}
@@ -1244,19 +1287,34 @@ func (h *ConsoleAPIHandler) CORSMiddleware(next http.Handler) http.Handler {
 
 // openFileExplorer 在系统文件管理器中打开包含该文件的文件夹
 func openFileExplorer(filePath string) error {
-	// 获取包含文件的目录
-	dir := filepath.Dir(filePath)
+	info, err := os.Stat(filePath)
+	if err != nil {
+		return err
+	}
+	isDir := info.IsDir()
+	dir := filePath
+	if !isDir {
+		dir = filepath.Dir(filePath)
+	}
 
 	var cmd *exec.Cmd
 	switch runtime.GOOS {
 	case "windows":
-		// 在 Windows 上，使用 explorer 打开文件夹并选择文件
-		// 转换为 Windows 路径格式 (反斜杠)
-		winPath := filepath.FromSlash(filePath)
-		cmd = exec.Command("explorer", "/select,", winPath)
+		if isDir {
+			cmd = exec.Command("explorer", filepath.FromSlash(dir))
+		} else {
+			// 在 Windows 上，使用 explorer 打开文件夹并选择文件
+			// 转换为 Windows 路径格式 (反斜杠)
+			winPath := filepath.FromSlash(filePath)
+			cmd = exec.Command("explorer", "/select,", winPath)
+		}
 	case "darwin":
-		// 在 macOS 上，使用 open -R 在 Finder 中显示文件
-		cmd = exec.Command("open", "-R", filePath)
+		// 在 macOS 上，对目录直接 open，对文件使用 open -R 显示文件
+		if isDir {
+			cmd = exec.Command("open", dir)
+		} else {
+			cmd = exec.Command("open", "-R", filePath)
+		}
 	default:
 		// 在 Linux 上，使用 xdg-open 打开文件夹
 		cmd = exec.Command("xdg-open", dir)
@@ -1442,6 +1500,44 @@ func isPathWithinBase(baseDir, targetPath string) bool {
 		return false
 	}
 	return !filepath.IsAbs(rel)
+}
+
+func validatePathInBase(baseDir, targetPath string, allowDir bool) (string, error) {
+	absPath, err := filepath.Abs(targetPath)
+	if err != nil {
+		return "", &pathValidationError{status: http.StatusBadRequest, msg: "invalid path"}
+	}
+
+	absBaseDir, err := filepath.Abs(baseDir)
+	if err != nil {
+		return "", &pathValidationError{status: http.StatusInternalServerError, msg: "failed to resolve downloads directory"}
+	}
+
+	if !isPathWithinBase(absBaseDir, absPath) {
+		return "", &pathValidationError{status: http.StatusForbidden, msg: "access to path outside downloads directory is forbidden"}
+	}
+
+	info, err := os.Stat(absPath)
+	if os.IsNotExist(err) {
+		return "", &pathValidationError{status: http.StatusNotFound, msg: "file not found"}
+	}
+	if err != nil {
+		return "", &pathValidationError{status: http.StatusInternalServerError, msg: "failed to access file"}
+	}
+	if !allowDir && info.IsDir() {
+		return "", &pathValidationError{status: http.StatusBadRequest, msg: "path is a directory"}
+	}
+
+	return absPath, nil
+}
+
+func isAllowedVideoExtension(path string) bool {
+	switch strings.ToLower(filepath.Ext(path)) {
+	case ".mp4", ".webm", ".ogg", ".ogv", ".mov", ".avi", ".mkv":
+		return true
+	default:
+		return false
+	}
 }
 
 // validateVideoPlayTargetURL validates upstream video URL and blocks local/private targets.
