@@ -44,15 +44,21 @@ func (r *QueueRepository) Add(item *QueueItem) error {
 	return nil
 }
 
-// GetByID 根据 ID 获取队列项目
+// GetByID 根据 ID 获取队列项目（通过 queue_id 精确关联下载记录）
 func (r *QueueRepository) GetByID(id string) (*QueueItem, error) {
 	query := `
-		SELECT id, video_id, title, author, COALESCE(cover_url, '') as cover_url, video_url, decrypt_key, 
-			COALESCE(duration, 0) as duration, COALESCE(resolution, '') as resolution, total_size, downloaded_size,
-			status, priority, added_time, start_time, speed, chunk_size,
-			chunks_total, chunks_completed, retry_count, error_message,
-			created_at, updated_at
-		FROM download_queue WHERE id = ?
+		SELECT 
+			q.id, q.video_id, q.title, q.author, COALESCE(q.cover_url, '') as cover_url, 
+			q.video_url, q.decrypt_key, 
+			COALESCE(q.duration, 0) as duration, COALESCE(q.resolution, '') as resolution, 
+			q.total_size, q.downloaded_size,
+			q.status, q.priority, q.added_time, q.start_time, q.speed, q.chunk_size,
+			q.chunks_total, q.chunks_completed, q.retry_count, q.error_message,
+			q.created_at, q.updated_at,
+			COALESCE(d.file_path, '') as file_path
+		FROM download_queue q
+		LEFT JOIN download_records d ON q.id = d.queue_id
+		WHERE q.id = ?
 	`
 	item := &QueueItem{}
 	var startTime sql.NullTime
@@ -60,12 +66,14 @@ func (r *QueueRepository) GetByID(id string) (*QueueItem, error) {
 	var decryptKey sql.NullString
 	var coverURL sql.NullString
 	var resolution sql.NullString
+	var filePath sql.NullString
 	err := r.db.QueryRow(query, id).Scan(
 		&item.ID, &item.VideoID, &item.Title, &item.Author, &coverURL, &item.VideoURL, &decryptKey,
 		&item.Duration, &resolution, &item.TotalSize, &item.DownloadedSize, &item.Status, &item.Priority,
 		&item.AddedTime, &startTime, &item.Speed, &item.ChunkSize,
 		&item.ChunksTotal, &item.ChunksCompleted, &item.RetryCount,
 		&errorMessage, &item.CreatedAt, &item.UpdatedAt,
+		&filePath,
 	)
 	if err == sql.ErrNoRows {
 		return nil, nil
@@ -80,6 +88,7 @@ func (r *QueueRepository) GetByID(id string) (*QueueItem, error) {
 	item.Resolution = resolution.String
 	item.ErrorMessage = errorMessage.String
 	item.DecryptKey = decryptKey.String
+	item.FilePath = filePath.String
 	return item, nil
 }
 

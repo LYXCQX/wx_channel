@@ -64,6 +64,11 @@ type App struct {
 	GopeedService  *services.GopeedService // Add GopeedService
 	CloudConnector *cloud.Connector
 
+	// 队列相关服务
+	QueueService      *services.QueueService
+	ChunkedDownloader *services.ChunkedDownloader
+	QueueProcessor    *services.QueueProcessor
+
 	// 路由器
 	APIRouter *router.APIRouter
 
@@ -142,6 +147,13 @@ func (app *App) Run() {
 		sig := <-signalChan
 		color.Red("\n正在关闭服务...%v\n\n", sig)
 		utils.LogSystemShutdown(fmt.Sprintf("收到信号: %v", sig))
+		
+		// 停止队列处理器
+		if app.QueueProcessor != nil {
+			utils.Info("正在停止队列处理器...")
+			app.QueueProcessor.Stop()
+		}
+		
 		database.Close()
 		if os_env == "darwin" {
 			proxy.DisableProxyInMacOS(proxy.ProxySettings{
@@ -183,6 +195,29 @@ func (app *App) Run() {
 			utils.Info(app.LogInitMsg)
 			app.LogInitMsg = ""
 		}
+	}
+
+	// 初始化队列服务
+	utils.Info("正在初始化队列服务...")
+	app.QueueService = services.NewQueueService()
+	app.ChunkedDownloader = services.NewChunkedDownloader(app.QueueService)
+	app.QueueProcessor = services.NewQueueProcessor(
+		app.QueueService,
+		app.ChunkedDownloader,
+		5, // 默认并发数为 3
+	)
+
+	// 启动队列处理器
+	if err := app.QueueProcessor.Start(); err != nil {
+		utils.LogError("启动队列处理器失败: %v", err)
+	} else {
+		utils.Info("✓ 队列处理器已启动 (并发: 3)")
+	}
+
+	// 启动进度转发器，将下载进度通过 WebSocket 实时推送
+	if app.WSHub != nil && app.ChunkedDownloader != nil {
+		app.WSHub.StartProgressForwarder(app.ChunkedDownloader.ProgressChannel())
+		utils.Info("✓ 下载进度实时推送已启用")
 	}
 
 	app.printEnvConfig()
