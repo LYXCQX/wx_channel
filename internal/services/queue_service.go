@@ -282,6 +282,7 @@ func (s *QueueService) CompleteDownload(id string) error {
 	// 创建下载记录
 	downloadRecord := &database.DownloadRecord{
 		ID:           uuid.New().String(),
+		QueueID:      item.ID, // 设置队列项ID，建立精确关联
 		VideoID:      item.VideoID,
 		Title:        item.Title,
 		Author:       item.Author,

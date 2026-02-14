@@ -494,15 +494,15 @@ func (c *Connector) handleAPICall(reqID string, data json.RawMessage) {
 
 	// 转换搜索接口返回数据为统一格式
 	if call.Key == "key:channels:contact_list" {
-		respData = c.transformSearchResponse(call.Body, respData)
+		respData = TransformSearchResponse(call.Body, respData)
 	}
 
 	// 返回结果
 	c.sendResponse(reqID, true, respData, "")
 }
 
-// transformSearchResponse 转换搜索响应数据为统一格式
-func (c *Connector) transformSearchResponse(requestBody, responseData json.RawMessage) json.RawMessage {
+// TransformSearchResponse 转换搜索响应数据为统一格式（公共方法，可被其他包调用）
+func TransformSearchResponse(requestBody, responseData json.RawMessage) json.RawMessage {
 	// 解析请求参数，获取 type
 	var reqBody struct {
 		Type int `json:"type"`

@@ -29,6 +29,7 @@ type BrowseRecord struct {
 // DownloadRecord 表示视频下载记录
 type DownloadRecord struct {
 	ID           string    `json:"id"`
+	QueueID      string    `json:"queueId"`      // 关联的队列项ID（精确一对一关联）
 	VideoID      string    `json:"videoId"`
 	Title        string    `json:"title"`
 	Author       string    `json:"author"`
@@ -80,6 +81,7 @@ type QueueItem struct {
 	ChunksCompleted int       `json:"chunksCompleted"`
 	RetryCount      int       `json:"retryCount"`
 	ErrorMessage    string    `json:"errorMessage"`
+	FilePath        string    `json:"filePath"`   // 下载完成后的文件路径（从 download_records 表获取）
 	CreatedAt       time.Time `json:"createdAt"`
 	UpdatedAt       time.Time `json:"updatedAt"`
 }
