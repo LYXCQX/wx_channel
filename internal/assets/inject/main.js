@@ -2905,8 +2905,10 @@ window.__wx_channels_profile_collector = {
           const headers = addAuthHeader({ 'Content-Type': 'application/json' });
           const res = await safeFetch('/__wx_channels_api/batch_progress', { method: 'POST', headers });
           if (res && res.ok) {
-            const data = await res.json().catch(() => null);
-            if (data) {
+            const response = await res.json().catch(() => null);
+            if (response) {
+              // 兼容两种响应格式
+              const data = response.data || response;
               const total = data.total || 0;
               const done = data.done || 0;
               const running = data.running || 0;
@@ -2978,11 +2980,19 @@ window.__wx_channels_profile_collector = {
             console.log('[后端批量] 发送请求到后端...');
             const res = await safeFetch('/__wx_channels_api/batch_start', { method: 'POST', headers, body: payloadStr });
             if (res && res.ok) {
-              this.showStatusMessage('已提交到后端下载队列' + (forceRedownload ? '（将重新下载已存在的文件）' : ''), 'success');
-              // 自动开始显示进度并轮询
-              startServerProgressPolling();
+              const result = await res.json().catch(() => null);
+              // 兼容两种响应格式
+              if (result && (result.success || result.code === 0)) {
+                this.showStatusMessage('已提交到后端下载队列' + (forceRedownload ? '（将重新下载已存在的文件）' : ''), 'success');
+                // 自动开始显示进度并轮询
+                startServerProgressPolling();
+              } else {
+                const errorMsg = result ? (result.error || result.message || '未知错误') : '响应格式错误';
+                console.error('[后端批量] 提交失败，响应:', result);
+                this.showStatusMessage('提交失败: ' + errorMsg, 'error');
+              }
             } else {
-              console.error('[后端批量] 提交失败，响应:', res);
+              console.error('[后端批量] 提交失败，HTTP状态:', res ? res.status : 'unknown');
               this.showStatusMessage('提交失败，请检查控制台', 'error');
             }
           } catch (error) {
@@ -3131,11 +3141,19 @@ window.__wx_channels_profile_collector = {
             this._forceRedownload = false;
             const res = await safeFetch('/__wx_channels_api/batch_start', { method: 'POST', headers, body: JSON.stringify(payload) });
             if (res && res.ok) {
-              this.showStatusMessage('选中清单已提交后端' + (forceRedownload ? '（将重新下载已存在的文件）' : ''), 'success');
-              // 自动开始显示进度并轮询
-              startServerProgressPolling();
+              const result = await res.json().catch(() => null);
+              // 兼容两种响应格式
+              if (result && (result.success || result.code === 0)) {
+                this.showStatusMessage('选中清单已提交后端' + (forceRedownload ? '（将重新下载已存在的文件）' : ''), 'success');
+                // 自动开始显示进度并轮询
+                startServerProgressPolling();
+              } else {
+                const errorMsg = result ? (result.error || result.message || '未知错误') : '响应格式错误';
+                console.error('[仅选中-后端] 提交失败，响应:', result);
+                this.showStatusMessage('提交失败: ' + errorMsg, 'error');
+              }
             } else {
-              console.error('[仅选中-后端] 提交失败，响应:', res);
+              console.error('[仅选中-后端] 提交失败，HTTP状态:', res ? res.status : 'unknown');
               this.showStatusMessage('提交失败，请检查控制台', 'error');
             }
           } catch (error) {
