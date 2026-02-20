@@ -438,12 +438,11 @@ func (h *BatchHandler) downloadVideo(ctx context.Context, task *BatchTask, downl
 	if !forceRedownload && task.ID != "" && h.downloadService != nil {
 		if exists, err := h.downloadService.GetByID(task.ID); err == nil && exists != nil {
 			// DB记录中已存在该视频ID，说明已下载过，尝试查找文件
-			// 使用包含ID的文件名查找
-			filenameWithID := utils.GenerateVideoFilename(task.Title, task.ID)
-			filenameWithID = utils.EnsureExtension(filenameWithID, ".mp4")
+			// 使用视频ID作为文件名查找
+			filenameWithID := task.ID + ".mp4"
 			filePathWithID := filepath.Join(savePath, filenameWithID)
 			if _, err := os.Stat(filePathWithID); err == nil {
-				utils.Info("⏭️ [批量下载] 视频ID已存在记录中，文件已存在，跳过: ID=%s, 文件名=%s", task.ID, filenameWithID)
+				utils.Info("⏭️ [批量下载] 视频ID已存在记录中，文件已存在，跳过: ID=%s", task.ID)
 				// 文件已存在也保存记录（标记为已完成）
 				h.saveDownloadRecord(task, filePathWithID, "completed")
 				return nil
@@ -453,15 +452,18 @@ func (h *BatchHandler) downloadVideo(ctx context.Context, task *BatchTask, downl
 		utils.Warn("downloadService is nil, skipping DB check")
 	}
 
-	// 生成文件名：优先使用视频ID确保唯一性
-	cleanFilename := utils.GenerateVideoFilename(task.Title, task.ID)
-	cleanFilename = utils.EnsureExtension(cleanFilename, ".mp4")
-	filePath := filepath.Join(savePath, cleanFilename)
+	// 使用视频ID作为文件名
+	filename := task.ID
+	if filename == "" {
+		filename = "video_" + time.Now().Format("20060102_150405")
+	}
+	filename = utils.EnsureExtension(filename, ".mp4")
+	filePath := filepath.Join(savePath, filename)
 
 	// 检查文件是否已存在（作为备用检查，主要检查已通过ID完成）
 	if !forceRedownload {
 		if _, err := os.Stat(filePath); err == nil {
-			utils.Info("⏭️ [批量下载] 文件已存在，跳过: %s", cleanFilename)
+			utils.Info("⏭️ [批量下载] 文件已存在，跳过: %s", filename)
 			// 文件已存在也保存记录（标记为已完成）
 			h.saveDownloadRecord(task, filePath, "completed")
 			return nil

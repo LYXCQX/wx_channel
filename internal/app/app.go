@@ -201,26 +201,25 @@ func (app *App) Run() {
 	// 初始化队列服务
 	utils.Info("正在初始化队列服务...")
 	app.QueueService = services.NewQueueService()
-	app.ChunkedDownloader = services.NewChunkedDownloader(app.QueueService)
+	
+	// 重置被中断的下载任务
+	if err := app.QueueService.ResetInterruptedDownloads(); err != nil {
+		utils.Warn("重置被中断的下载任务失败: %v", err)
+	}
+	
+	app.ChunkedDownloader = services.NewChunkedDownloader(app.QueueService, app.GopeedService)
 	app.QueueProcessor = services.NewQueueProcessor(
 		app.QueueService,
 		app.ChunkedDownloader,
-		5, // 默认并发数为 3
+		5, // 默认并发数为 5
 	)
 
 	// 启动队列处理器
 	if err := app.QueueProcessor.Start(); err != nil {
 		utils.LogError("启动队列处理器失败: %v", err)
 	} else {
-		utils.Info("✓ 队列处理器已启动 (并发: 3)")
+		utils.Info("✓ 队列处理器已启动 (并发: 5)")
 	}
-
-	// 启动进度转发器，将下载进度通过 WebSocket 实时推送
-	if app.WSHub != nil && app.ChunkedDownloader != nil {
-		app.WSHub.StartProgressForwarder(app.ChunkedDownloader.ProgressChannel())
-		utils.Info("✓ 下载进度实时推送已启用")
-	}
-
 	app.printEnvConfig()
 
 	app.ConsoleAPIHandler = handlers.NewConsoleAPIHandler(app.Cfg, app.WSHub)
