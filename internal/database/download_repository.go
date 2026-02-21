@@ -25,14 +25,14 @@ func (r *DownloadRecordRepository) Create(record *DownloadRecord) error {
 
 	query := `
 		INSERT OR REPLACE INTO download_records (
-			id, video_id, title, author, cover_url, duration, file_size, file_path,
+			id, queue_id, video_id, title, author, cover_url, duration, file_size, file_path,
 			format, resolution, status, download_time, error_message,
 			like_count, comment_count, forward_count, fav_count,
 			created_at, updated_at
-		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 	`
 	_, err := r.db.Exec(query,
-		record.ID, record.VideoID, record.Title, record.Author, record.CoverURL,
+		record.ID, record.QueueID, record.VideoID, record.Title, record.Author, record.CoverURL,
 		record.Duration, record.FileSize, record.FilePath, record.Format,
 		record.Resolution, record.Status, record.DownloadTime,
 		record.ErrorMessage,
@@ -48,16 +48,16 @@ func (r *DownloadRecordRepository) Create(record *DownloadRecord) error {
 // GetByID 根据 ID 获取下载记录
 func (r *DownloadRecordRepository) GetByID(id string) (*DownloadRecord, error) {
 	query := `
-		SELECT id, video_id, title, author, COALESCE(cover_url, '') as cover_url, duration, file_size, file_path,
+		SELECT id, queue_id, video_id, title, author, COALESCE(cover_url, '') as cover_url, duration, file_size, file_path,
 			format, resolution, status, download_time, error_message,
 			like_count, comment_count, forward_count, fav_count,
 			created_at, updated_at
 		FROM download_records WHERE id = ?
 	`
 	record := &DownloadRecord{}
-	var filePath, format, resolution, errorMessage, coverURL sql.NullString
+	var queueID, filePath, format, resolution, errorMessage, coverURL sql.NullString
 	err := r.db.QueryRow(query, id).Scan(
-		&record.ID, &record.VideoID, &record.Title, &record.Author, &coverURL,
+		&record.ID, &queueID, &record.VideoID, &record.Title, &record.Author, &coverURL,
 		&record.Duration, &record.FileSize, &filePath, &format,
 		&resolution, &record.Status, &record.DownloadTime,
 		&errorMessage,
@@ -70,6 +70,7 @@ func (r *DownloadRecordRepository) GetByID(id string) (*DownloadRecord, error) {
 	if err != nil {
 		return nil, fmt.Errorf("failed to get download record: %w", err)
 	}
+	record.QueueID = queueID.String
 	record.CoverURL = coverURL.String
 	record.FilePath = filePath.String
 	record.Format = format.String
@@ -217,7 +218,7 @@ func (r *DownloadRecordRepository) List(params *FilterParams) (*PagedResult[Down
 	offset := (params.Page - 1) * params.PageSize
 
 	query := fmt.Sprintf(`
-		SELECT id, video_id, title, author, COALESCE(cover_url, '') as cover_url, duration, file_size, file_path,
+		SELECT id, queue_id, video_id, title, author, COALESCE(cover_url, '') as cover_url, duration, file_size, file_path,
 			format, resolution, status, download_time, error_message,
 			like_count, comment_count, forward_count, fav_count,
 			created_at, updated_at
@@ -237,9 +238,9 @@ func (r *DownloadRecordRepository) List(params *FilterParams) (*PagedResult[Down
 	var records []DownloadRecord
 	for rows.Next() {
 		var record DownloadRecord
-		var filePath, format, resolution, errorMessage, coverURL sql.NullString
+		var queueID, filePath, format, resolution, errorMessage, coverURL sql.NullString
 		err := rows.Scan(
-			&record.ID, &record.VideoID, &record.Title, &record.Author, &coverURL,
+			&record.ID, &queueID, &record.VideoID, &record.Title, &record.Author, &coverURL,
 			&record.Duration, &record.FileSize, &filePath, &format,
 			&resolution, &record.Status, &record.DownloadTime,
 			&errorMessage,
@@ -249,6 +250,7 @@ func (r *DownloadRecordRepository) List(params *FilterParams) (*PagedResult[Down
 		if err != nil {
 			return nil, fmt.Errorf("failed to scan download record: %w", err)
 		}
+		record.QueueID = queueID.String
 		record.CoverURL = coverURL.String
 		record.FilePath = filePath.String
 		record.Format = format.String
@@ -305,7 +307,7 @@ func (r *DownloadRecordRepository) GetRecent(limit int) ([]DownloadRecord, error
 	}
 
 	query := `
-		SELECT id, video_id, title, author, COALESCE(cover_url, '') as cover_url, duration, file_size, file_path,
+		SELECT id, queue_id, video_id, title, author, COALESCE(cover_url, '') as cover_url, duration, file_size, file_path,
 			format, resolution, status, download_time, error_message,
 			like_count, comment_count, forward_count, fav_count,
 			created_at, updated_at
@@ -323,9 +325,9 @@ func (r *DownloadRecordRepository) GetRecent(limit int) ([]DownloadRecord, error
 	var records []DownloadRecord
 	for rows.Next() {
 		var record DownloadRecord
-		var filePath, format, resolution, errorMessage, coverURL sql.NullString
+		var queueID, filePath, format, resolution, errorMessage, coverURL sql.NullString
 		err := rows.Scan(
-			&record.ID, &record.VideoID, &record.Title, &record.Author, &coverURL,
+			&record.ID, &queueID, &record.VideoID, &record.Title, &record.Author, &coverURL,
 			&record.Duration, &record.FileSize, &filePath, &format,
 			&resolution, &record.Status, &record.DownloadTime,
 			&errorMessage,
@@ -335,6 +337,7 @@ func (r *DownloadRecordRepository) GetRecent(limit int) ([]DownloadRecord, error
 		if err != nil {
 			return nil, fmt.Errorf("failed to scan download record: %w", err)
 		}
+		record.QueueID = queueID.String
 		record.CoverURL = coverURL.String
 		record.FilePath = filePath.String
 		record.Format = format.String
@@ -362,7 +365,7 @@ func (r *DownloadRecordRepository) DeleteBefore(date time.Time) (int64, error) {
 // GetAll 获取所有下载记录（用于导出）
 func (r *DownloadRecordRepository) GetAll() ([]DownloadRecord, error) {
 	query := `
-		SELECT id, video_id, title, author, COALESCE(cover_url, '') as cover_url, duration, file_size, file_path,
+		SELECT id, queue_id, video_id, title, author, COALESCE(cover_url, '') as cover_url, duration, file_size, file_path,
 			format, resolution, status, download_time, error_message,
 			like_count, comment_count, forward_count, fav_count,
 			created_at, updated_at
@@ -379,9 +382,9 @@ func (r *DownloadRecordRepository) GetAll() ([]DownloadRecord, error) {
 	var records []DownloadRecord
 	for rows.Next() {
 		var record DownloadRecord
-		var filePath, format, resolution, errorMessage, coverURL sql.NullString
+		var queueID, filePath, format, resolution, errorMessage, coverURL sql.NullString
 		err := rows.Scan(
-			&record.ID, &record.VideoID, &record.Title, &record.Author, &coverURL,
+			&record.ID, &queueID, &record.VideoID, &record.Title, &record.Author, &coverURL,
 			&record.Duration, &record.FileSize, &filePath, &format,
 			&resolution, &record.Status, &record.DownloadTime,
 			&errorMessage,
@@ -391,6 +394,7 @@ func (r *DownloadRecordRepository) GetAll() ([]DownloadRecord, error) {
 		if err != nil {
 			return nil, fmt.Errorf("failed to scan download record: %w", err)
 		}
+		record.QueueID = queueID.String
 		record.CoverURL = coverURL.String
 		record.FilePath = filePath.String
 		record.Format = format.String
@@ -420,7 +424,7 @@ func (r *DownloadRecordRepository) GetByIDs(ids []string) ([]DownloadRecord, err
 	}
 
 	query := fmt.Sprintf(`
-		SELECT id, video_id, title, author, COALESCE(cover_url, '') as cover_url, duration, file_size, file_path,
+		SELECT id, queue_id, video_id, title, author, COALESCE(cover_url, '') as cover_url, duration, file_size, file_path,
 			format, resolution, status, download_time, error_message,
 			like_count, comment_count, forward_count, fav_count,
 			created_at, updated_at
@@ -438,9 +442,9 @@ func (r *DownloadRecordRepository) GetByIDs(ids []string) ([]DownloadRecord, err
 	var records []DownloadRecord
 	for rows.Next() {
 		var record DownloadRecord
-		var filePath, format, resolution, errorMessage, coverURL sql.NullString
+		var queueID, filePath, format, resolution, errorMessage, coverURL sql.NullString
 		err := rows.Scan(
-			&record.ID, &record.VideoID, &record.Title, &record.Author, &coverURL,
+			&record.ID, &queueID, &record.VideoID, &record.Title, &record.Author, &coverURL,
 			&record.Duration, &record.FileSize, &filePath, &format,
 			&resolution, &record.Status, &record.DownloadTime,
 			&errorMessage,
@@ -450,6 +454,7 @@ func (r *DownloadRecordRepository) GetByIDs(ids []string) ([]DownloadRecord, err
 		if err != nil {
 			return nil, fmt.Errorf("failed to scan download record: %w", err)
 		}
+		record.QueueID = queueID.String
 		record.CoverURL = coverURL.String
 		record.FilePath = filePath.String
 		record.Format = format.String

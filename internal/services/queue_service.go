@@ -29,6 +29,37 @@ func NewQueueService() *QueueService {
 	}
 }
 
+// ResetInterruptedDownloads 将所有"downloading"状态的任务重置为"pending"
+// 用于程序启动时恢复被中断的下载
+func (s *QueueService) ResetInterruptedDownloads() error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	// 获取所有正在下载的任务
+	downloadingItems, err := s.repo.ListByStatus(database.QueueStatusDownloading)
+	if err != nil {
+		return fmt.Errorf("failed to get downloading items: %w", err)
+	}
+
+	if len(downloadingItems) == 0 {
+		return nil
+	}
+
+	utils.Info("[队列服务] 发现 %d 个被中断的下载任务，正在重置为待下载状态...", len(downloadingItems))
+
+	// 将所有正在下载的任务重置为待下载
+	for _, item := range downloadingItems {
+		if err := s.repo.UpdateStatus(item.ID, database.QueueStatusPending); err != nil {
+			utils.Warn("[队列服务] 重置任务状态失败: %s - %v", item.Title, err)
+			continue
+		}
+		utils.Info("[队列服务] 已重置任务: %s", item.Title)
+	}
+
+	utils.Info("[队列服务] 已重置 %d 个被中断的下载任务", len(downloadingItems))
+	return nil
+}
+
 // VideoInfo 表示要添加到队列的视频信息
 type VideoInfo struct {
 	VideoID    string `json:"videoId"`
@@ -249,6 +280,11 @@ func (s *QueueService) StartDownload(id string) error {
 
 // CompleteDownload 标记项目为完成并创建下载记录
 func (s *QueueService) CompleteDownload(id string) error {
+	return s.CompleteDownloadWithPath(id, "")
+}
+
+// CompleteDownloadWithPath 标记项目为完成并创建下载记录（使用实际文件路径）
+func (s *QueueService) CompleteDownloadWithPath(id string, actualFilePath string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -275,13 +311,20 @@ func (s *QueueService) CompleteDownload(id string) error {
 		return err
 	}
 
-	// 根据批量下载约定计算文件路径
-	// 路径格式: {baseDir}/downloads/{authorFolder}/{cleanFilename}.mp4
-	filePath := calculateDownloadFilePath(item.Author, item.Title)
+	// 使用实际文件路径，如果没有提供则计算
+	var filePath string
+	if actualFilePath != "" {
+		filePath = actualFilePath
+	} else {
+		// 根据批量下载约定计算文件路径
+		// 路径格式: {baseDir}/downloads/{authorFolder}/{videoId}.mp4
+		filePath = calculateDownloadFilePath(item.Author, item.VideoID)
+	}
 
 	// 创建下载记录
 	downloadRecord := &database.DownloadRecord{
 		ID:           uuid.New().String(),
+		QueueID:      item.ID, // 设置队列项ID，建立精确关联
 		VideoID:      item.VideoID,
 		Title:        item.Title,
 		Author:       item.Author,
@@ -305,7 +348,8 @@ func (s *QueueService) CompleteDownload(id string) error {
 }
 
 // calculateDownloadFilePath 计算下载视频的预期文件路径
-func calculateDownloadFilePath(author, title string) string {
+// 注意：这个函数应该与 prepareDownloadPath 保持一致的命名规则
+func calculateDownloadFilePath(author, videoId string) string {
 	// 从当前配置获取下载目录
 	cfg := config.Get()
 	var downloadsDir string
@@ -330,20 +374,21 @@ func calculateDownloadFilePath(author, title string) string {
 		authorFolder = "未知作者"
 	}
 
-	// 清理标题作为文件名
-	cleanTitle := cleanFilename(title)
-	if cleanTitle == "" {
-		cleanTitle = "未命名视频"
+	// 使用视频ID作为文件名（视频ID通常是数字，不需要清理）
+	// 注意：这里只能使用videoId，因为在CompleteDownloadWithPath调用时可能没有title
+	filename := videoId
+	if filename == "" {
+		filename = "未命名视频"
 	}
 
 	// 确保 .mp4 扩展名
-	if !strings.HasSuffix(strings.ToLower(cleanTitle), ".mp4") {
-		cleanTitle = cleanTitle + ".mp4"
+	if !strings.HasSuffix(strings.ToLower(filename), ".mp4") {
+		filename = filename + ".mp4"
 	}
 
 	// 使用正确的下载目录返回绝对路径
-	// 路径格式: {downloadsDir}/{author}/{title}.mp4
-	return filepath.Join(downloadsDir, authorFolder, cleanTitle)
+	// 路径格式: {downloadsDir}/{author}/{videoId}.mp4
+	return filepath.Join(downloadsDir, authorFolder, filename)
 }
 
 // cleanFolderName 从文件夹名称中移除无效字符

@@ -497,6 +497,26 @@ func (h *ConsoleAPIHandler) HandleQueueList(w http.ResponseWriter, r *http.Reque
 	h.sendSuccess(w, r, items)
 }
 
+// HandleQueueGet 处理 GET /api/queue/:id - 获取单个队列项目
+func (h *ConsoleAPIHandler) HandleQueueGet(w http.ResponseWriter, r *http.Request, id string) {
+	if h.HandleCORS(w, r) {
+		return
+	}
+
+	item, err := h.queueService.GetByID(id)
+	if err != nil {
+		h.sendError(w, r, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	if item == nil {
+		h.sendError(w, r, http.StatusNotFound, "queue item not found")
+		return
+	}
+
+	h.sendSuccess(w, r, item)
+}
+
 // HandleQueueAdd 处理 POST /api/queue - 添加项目到队列
 func (h *ConsoleAPIHandler) HandleQueueAdd(w http.ResponseWriter, r *http.Request) {
 	if h.HandleCORS(w, r) {
@@ -708,7 +728,13 @@ func (h *ConsoleAPIHandler) HandleQueueAPI(w http.ResponseWriter, r *http.Reques
 
 	switch r.Method {
 	case "GET":
-		h.HandleQueueList(w, r)
+		if id != "" {
+			// GET /api/queue/:id - 获取单个队列项目
+			h.HandleQueueGet(w, r, id)
+		} else {
+			// GET /api/queue - 列出所有队列项目
+			h.HandleQueueList(w, r)
+		}
 	case "POST":
 		h.HandleQueueAdd(w, r)
 	case "PUT":

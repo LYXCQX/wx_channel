@@ -7,7 +7,9 @@ import (
 	"strings"
 	"time"
 
+	"wx_channel/internal/cloud"
 	"wx_channel/internal/response"
+	"wx_channel/internal/utils"
 	"wx_channel/internal/websocket"
 )
 
@@ -21,22 +23,28 @@ func NewSearchService(hub *websocket.Hub) *SearchService {
 	return &SearchService{hub: hub}
 }
 
-// SearchContactRequest 搜索账号请求参数
+// SearchContactRequest 搜索请求参数
 type SearchContactRequest struct {
-	Keyword  string `json:"keyword"`
-	Page     int    `json:"page"`
-	PageSize int    `json:"page_size"`
+	Keyword    string `json:"keyword"`
+	Type       int    `json:"type"` // 搜索类型：1=账号, 2=直播, 3=视频
+	Page       int    `json:"page"`
+	PageSize   int    `json:"page_size"`
+	NextMarker string `json:"next_marker"` // 分页标记
 }
 
-// SearchContact 搜索账号
+// SearchContact 统一搜索接口（支持账号、直播、视频）
 func (s *SearchService) SearchContact(w http.ResponseWriter, r *http.Request) {
+	clientIP := r.RemoteAddr
+
 	var req SearchContactRequest
 
 	// 支持 GET 和 POST
 	if r.Method == http.MethodGet {
 		req.Keyword = r.URL.Query().Get("keyword")
+		req.Type, _ = strconv.Atoi(r.URL.Query().Get("type"))
 		req.Page, _ = strconv.Atoi(r.URL.Query().Get("page"))
 		req.PageSize, _ = strconv.Atoi(r.URL.Query().Get("page_size"))
+		req.NextMarker = r.URL.Query().Get("next_marker")
 	} else if r.Method == http.MethodPost {
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 			response.Error(w, 400, "Invalid request body")
@@ -54,6 +62,17 @@ func (s *SearchService) SearchContact(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// 默认值和范围检查
+	originalType := req.Type
+	if req.Type == 0 {
+		req.Type = 1 // 默认搜索账号（向后兼容）
+	}
+	if req.Type < 1 || req.Type > 3 {
+		utils.LogWarn("API 请求参数错误: %s from %s, type值无效:%d", r.URL.Path, clientIP, originalType)
+		response.Error(w, 400, "type must be 1 (account), 2 (live), or 3 (video)")
+		return
+	}
+
 	// 默认分页
 	if req.Page <= 0 {
 		req.Page = 1
@@ -64,12 +83,24 @@ func (s *SearchService) SearchContact(w http.ResponseWriter, r *http.Request) {
 
 	// 调用前端 API
 	body := websocket.SearchContactBody{
-		Keyword: req.Keyword,
+		Keyword:    req.Keyword,
+		Type:       req.Type, // 传递搜索类型
+		NextMarker: req.NextMarker, // 传递分页标记
 	}
 
-	data, err := s.hub.CallAPI("key:channels:contact_list", body, 60*time.Second)
+	apiCallStart := time.Now()
+
+	// 使用与 api/call 相同的超时时间（3分钟）
+	data, err := s.hub.CallAPI("key:channels:contact_list", body, 3*time.Minute)
+
+	apiCallDuration := time.Since(apiCallStart)
+
 	if err != nil {
+		utils.LogError("WebSocket API 调用失败: %s, keyword=%s, type=%d, duration=%v, error=%v",
+			r.URL.Path, req.Keyword, req.Type, apiCallDuration, err)
+
 		if strings.Contains(err.Error(), "no available client") {
+			utils.LogWarn("WebSocket 客户端未连接: %s", r.URL.Path)
 			response.ErrorWithStatus(w, http.StatusServiceUnavailable, http.StatusServiceUnavailable, "WeChat client not connected. Please open the target page.")
 			return
 		}
@@ -77,10 +108,16 @@ func (s *SearchService) SearchContact(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// 解析返回数据以支持分页
+	// 转换响应数据为统一格式（与 api/call 使用完全相同的逻辑）
+	bodyJSON, _ := json.Marshal(body)
+	transformedData := cloud.TransformSearchResponse(bodyJSON, data)
+	
+	utils.LogInfo("数据转换完成，转换后数据大小: %d bytes", len(transformedData))
+	
+	// 直接返回转换后的数据（与 api/call 保持一致）
 	var result interface{}
-	if err := json.Unmarshal(data, &result); err != nil {
-		response.Success(w, json.RawMessage(data))
+	if err := json.Unmarshal(transformedData, &result); err != nil {
+		response.Success(w, json.RawMessage(transformedData))
 		return
 	}
 

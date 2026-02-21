@@ -229,6 +229,17 @@ ALTER TABLE download_records ADD COLUMN forward_count INTEGER DEFAULT 0;
 ALTER TABLE download_records ADD COLUMN fav_count INTEGER DEFAULT 0;
 `,
 	},
+	{
+		Version:     9,
+		Description: "Add queue_id column to download_records table for precise queue association",
+		Up: `
+-- Add queue_id column to download_records table
+ALTER TABLE download_records ADD COLUMN queue_id TEXT;
+
+-- Create index for queue_id to improve query performance
+CREATE INDEX IF NOT EXISTS idx_download_records_queue_id ON download_records(queue_id);
+`,
+	},
 }
 
 // runMigrations 执行所有待处理的迁移

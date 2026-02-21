@@ -64,6 +64,11 @@ type App struct {
 	GopeedService  *services.GopeedService // Add GopeedService
 	CloudConnector *cloud.Connector
 
+	// 队列相关服务
+	QueueService      *services.QueueService
+	ChunkedDownloader *services.ChunkedDownloader
+	QueueProcessor    *services.QueueProcessor
+
 	// 路由器
 	APIRouter *router.APIRouter
 
@@ -143,6 +148,13 @@ func (app *App) Run() {
 		sig := <-signalChan
 		color.Red("\n正在关闭服务...%v\n\n", sig)
 		utils.LogSystemShutdown(fmt.Sprintf("收到信号: %v", sig))
+		
+		// 停止队列处理器
+		if app.QueueProcessor != nil {
+			utils.Info("正在停止队列处理器...")
+			app.QueueProcessor.Stop()
+		}
+		
 		database.Close()
 		if os_env == "darwin" {
 			proxy.DisableProxyInMacOS(proxy.ProxySettings{
@@ -186,6 +198,28 @@ func (app *App) Run() {
 		}
 	}
 
+	// 初始化队列服务
+	utils.Info("正在初始化队列服务...")
+	app.QueueService = services.NewQueueService()
+	
+	// 重置被中断的下载任务
+	if err := app.QueueService.ResetInterruptedDownloads(); err != nil {
+		utils.Warn("重置被中断的下载任务失败: %v", err)
+	}
+	
+	app.ChunkedDownloader = services.NewChunkedDownloader(app.QueueService, app.GopeedService)
+	app.QueueProcessor = services.NewQueueProcessor(
+		app.QueueService,
+		app.ChunkedDownloader,
+		5, // 默认并发数为 5
+	)
+
+	// 启动队列处理器
+	if err := app.QueueProcessor.Start(); err != nil {
+		utils.LogError("启动队列处理器失败: %v", err)
+	} else {
+		utils.Info("✓ 队列处理器已启动 (并发: 5)")
+	}
 	app.printEnvConfig()
 
 	app.ConsoleAPIHandler = handlers.NewConsoleAPIHandler(app.Cfg, app.WSHub)
