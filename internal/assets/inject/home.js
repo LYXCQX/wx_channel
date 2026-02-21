@@ -448,7 +448,7 @@ WXE.onPCFlowLoaded(function (data) {
   var feeds = Array.isArray(data) ? data : (data.feeds || []);
   var params = (data && !Array.isArray(data)) ? (data.params || {}) : {};
 
-  console.log('[home.js] onPCFlowLoaded 事件触发，feeds数量:', feeds ? feeds.length : 0);
+  // console.log('[home.js] onPCFlowLoaded 事件触发，feeds数量:', feeds ? feeds.length : 0);
   // console.log('[home.js] onPCFlowLoaded 参数:', JSON.stringify(params));
 
   // 过滤非首页数据

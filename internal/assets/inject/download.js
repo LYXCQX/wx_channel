@@ -222,7 +222,7 @@ async function __wx_channels_handle_click_download__(spec) {
       if (data.success) {
         var msg = data.skipped ? '⏭️ 文件已存在，跳过下载' : (hasKey ? '✓ 视频已下载并解密' : '✓ 视频已下载');
         var path = data.relativePath || data.path || '';
-        __wx_log({ msg: msg + (path ? '\n路径: ' + path : '') });
+        __wx_log({ msg: msg });
       } else {
         __wx_log({ msg: '❌ ' + (data.error || '下载视频失败') });
         alert('下载失败: ' + (data.error || '下载视频失败'));

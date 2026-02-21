@@ -6,9 +6,9 @@
 
 ## 快速开始
 
-1. 启动程序：`.\wx_channel_api.exe`
+1. 启动程序：`.\wx_channel.exe`
 2. 打开微信视频号页面
-3. 调用 API：`curl "http://127.0.0.1:2027/api/channels/contact/search?keyword=纪录片"`
+3. 调用 API：`curl "http://127.0.0.1:2026/api/channels/contact/search?keyword=纪录片"`
 
 ## API 端点
 
@@ -36,12 +36,12 @@
 import requests
 
 # 搜索账号
-r = requests.get('http://127.0.0.1:2027/api/channels/contact/search',
+r = requests.get('http://127.0.0.1:2026/api/channels/contact/search',
                  params={'keyword': '纪录片'})
 username = r.json()['data']['infoList'][0]['contact']['username']
 
 # 获取视频列表
-r = requests.get('http://127.0.0.1:2027/api/channels/contact/feed/list',
+r = requests.get('http://127.0.0.1:2026/api/channels/contact/feed/list',
                  params={'username': username})
 videos = r.json()['data']['object']
 ```

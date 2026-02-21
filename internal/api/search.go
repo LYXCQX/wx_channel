@@ -67,7 +67,7 @@ func (s *SearchService) SearchContact(w http.ResponseWriter, r *http.Request) {
 		Keyword: req.Keyword,
 	}
 
-	data, err := s.hub.CallAPI("key:channels:contact_list", body, 20*time.Second)
+	data, err := s.hub.CallAPI("key:channels:contact_list", body, 60*time.Second)
 	if err != nil {
 		if strings.Contains(err.Error(), "no available client") {
 			response.ErrorWithStatus(w, http.StatusServiceUnavailable, http.StatusServiceUnavailable, "WeChat client not connected. Please open the target page.")
@@ -130,7 +130,7 @@ func (s *SearchService) GetFeedList(w http.ResponseWriter, r *http.Request) {
 		NextMarker: req.NextMarker,
 	}
 
-	data, err := s.hub.CallAPI("key:channels:feed_list", body, 10*time.Second)
+	data, err := s.hub.CallAPI("key:channels:feed_list", body, 60*time.Second)
 	if err != nil {
 		if strings.Contains(err.Error(), "no available client") {
 			response.ErrorWithStatus(w, http.StatusServiceUnavailable, http.StatusServiceUnavailable, "WeChat client not connected")
@@ -183,7 +183,7 @@ func (s *SearchService) GetFeedProfile(w http.ResponseWriter, r *http.Request) {
 		URL:      req.URL,
 	}
 
-	data, err := s.hub.CallAPI("key:channels:feed_profile", body, 10*time.Second)
+	data, err := s.hub.CallAPI("key:channels:feed_profile", body, 60*time.Second)
 	if err != nil {
 		if strings.Contains(err.Error(), "no available client") {
 			response.ErrorWithStatus(w, http.StatusServiceUnavailable, http.StatusServiceUnavailable, "WeChat client not connected")

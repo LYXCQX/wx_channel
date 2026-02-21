@@ -20,6 +20,7 @@ import (
 
 	"wx_channel/internal/api"
 	"wx_channel/internal/assets"
+	"wx_channel/internal/cloud"
 	"wx_channel/internal/config"
 	"wx_channel/internal/database"
 	"wx_channel/internal/handlers"
@@ -30,6 +31,8 @@ import (
 	"wx_channel/internal/websocket"
 	"wx_channel/pkg/certificate"
 	"wx_channel/pkg/proxy"
+
+	"github.com/prometheus/client_golang/prometheus/promhttp"
 )
 
 // App 结构体，用于保存依赖项和状态
@@ -56,9 +59,10 @@ type App struct {
 	StaticFileHandler *handlers.StaticFileHandler
 
 	// 服务
-	WSHub         *websocket.Hub
-	SearchService *api.SearchService
-	GopeedService *services.GopeedService // Add GopeedService
+	WSHub          *websocket.Hub
+	SearchService  *api.SearchService
+	GopeedService  *services.GopeedService // Add GopeedService
+	CloudConnector *cloud.Connector
 
 	// 路由器
 	APIRouter *router.APIRouter
@@ -93,6 +97,9 @@ func NewApp(cfgParam *config.Config) *App {
 
 	// 尽早初始化 WebSocket Hub，以确保它对 APIRouter 可用
 	app.WSHub = websocket.NewHub()
+
+	// 根据配置设置负载均衡选择器
+	app.configureLoadBalancer()
 
 	return app
 }
@@ -129,6 +136,7 @@ func (app *App) Run() {
 	// 确保端口设置正确
 	app.Sunny.SetPort(app.Port)
 
+	done := make(chan struct{})
 	signalChan := make(chan os.Signal, 1)
 	signal.Notify(signalChan, syscall.SIGINT, syscall.SIGTERM)
 	go func() {
@@ -143,7 +151,7 @@ func (app *App) Run() {
 				Port:     strconv.Itoa(app.Port),
 			})
 		}
-		os.Exit(0)
+		close(done)
 	}()
 
 	// 启动时检查更新 (移到这里以确保尽早执行)
@@ -215,6 +223,7 @@ func (app *App) Run() {
 		assets.EventbusJS,
 		assets.UtilsJS,
 		assets.APIClientJS,
+		assets.KeepAliveJS,
 		app.Version,
 	)
 
@@ -263,68 +272,89 @@ func (app *App) Run() {
 		utils.Info("✓ 证书已存在，无需重新安装。")
 	}
 
-	app.Sunny.SetGoCallback(GlobalHttpCallback, nil, nil, nil)
+	// 1. 立即启动核心驱动
 	sunnyErr := app.Sunny.Start().Error
 	if sunnyErr != nil {
-		utils.HandleError(sunnyErr, "启动代理服务")
-		utils.Warn("按 Ctrl+C 退出...")
+		utils.LogError("启动代理核心失败: %v", sunnyErr)
+		utils.Warn("请检查程序是否已被防火墙拦截，按 Ctrl+C 退出...")
 		select {}
 	}
+	app.Sunny.SetGoCallback(GlobalHttpCallback, nil, nil, nil)
 
-	proxy_server := fmt.Sprintf("127.0.0.1:%v", app.Port)
-	client := &http.Client{
-		Transport: &http.Transport{
-			Proxy: http.ProxyURL(&url.URL{
-				Scheme: "http",
-				Host:   proxy_server,
-			}),
-		},
-		Timeout: 5 * time.Second, // 设置超时防止阻塞
+	// 2. 立即渲染界面面板 (不再受网络连接阻塞)
+	utils.PrintSeparator()
+	color.Blue("📡 服务状态信息")
+	utils.PrintSeparator()
+	utils.PrintLabelValue("⏳", "服务状态", "已启动")
+	utils.PrintLabelValue("🔌", "代理端口", app.Port)
+	utils.PrintLabelValue("📱", "支持平台", "微信视频号")
+
+	proxyMode := "进程代理"
+	if os_env != "windows" {
+		proxyMode = "系统代理"
 	}
-	_, err3 := client.Get("https://sunny.io/")
-	if err3 == nil {
-		if os_env == "windows" {
-			ok := app.Sunny.StartProcess()
-			if !ok {
-				color.Red("\nERROR 启动进程代理失败，检查是否以管理员身份运行\n")
-				color.Yellow("按 Ctrl+C 退出...\n")
-				select {}
-			}
-			app.Sunny.ProcessAddName("WeChatAppEx.exe")
-		}
+	utils.LogSystemStart(app.Port, proxyMode)
 
-		utils.PrintSeparator()
-		color.Blue("📡 服务状态信息")
-		utils.PrintSeparator()
-		utils.PrintLabelValue("⏳", "服务状态", "已启动")
-		utils.PrintLabelValue("🔌", "代理端口", app.Port)
-		utils.PrintLabelValue("📱", "支持平台", "微信视频号")
+	// 3. 立即启动各类后台服务
+	go app.WSHub.Run()
+	utils.Info("✓ WebSocket Hub 已启动")
 
-		proxyMode := "进程代理"
-		if os_env != "windows" {
-			proxyMode = "系统代理"
-		}
-		utils.LogSystemStart(app.Port, proxyMode)
+	wsPort := app.Port + 1
+	go app.startWebSocketServer(wsPort)
 
-		// Start WebSocket Hub (Now initialized earlier)
-		go app.WSHub.Run()
-		utils.Info("✓ WebSocket Hub 已启动")
+	// 启动 Prometheus 监控服务器（如果启用）
+	if app.Cfg.MetricsEnabled {
+		go app.startMetricsServer()
+	}
 
-		wsPort := app.Port + 1
-		go app.startWebSocketServer(wsPort)
-
-		utils.Info("🔍 请打开需要下载的视频号页面进行下载")
+	// 启动云端连接器（如果启用）
+	if app.Cfg.CloudEnabled {
+		app.CloudConnector = cloud.NewConnector(app.Cfg, app.WSHub)
+		app.CloudConnector.Start()
+		utils.Info("✓ 云端管理功能已启用")
 	} else {
-		utils.PrintSeparator()
-		utils.Warn("⚠️ 您还未安装证书，请在浏览器打开 http://%v 并根据说明安装证书", proxy_server)
-		utils.Warn("⚠️ 在安装完成后重新启动此程序即可")
-		utils.PrintSeparator()
+		utils.Info("云端管理功能已禁用 (cloud_enabled: false)")
 	}
+
+	utils.Info("🔍 请打开需要下载的视频号页面进行下载")
+
+	// 4. 【异步】处理 Windows 进程注入和连通性检查 (不阻塞主线程)
+	go func() {
+		// 如果是 Windows，尝试启动注入引擎
+		if os_env == "windows" {
+			app.Sunny.ProcessAddName("WeChatAppEx.exe")
+			if ok := app.Sunny.StartProcess(); ok {
+				utils.Info("✓ 视频号注入引擎已就绪 (WeChatAppEx.exe)")
+			} else {
+				utils.Warn("⚠️ 注入引擎启动失败：可能需要 [管理员权限] 才能在视频号内显示按钮")
+			}
+		}
+
+		// 执行连通性自检
+		time.Sleep(1 * time.Second)
+		proxy_server := fmt.Sprintf("127.0.0.1:%v", app.Port)
+		client := &http.Client{
+			Transport: &http.Transport{
+				Proxy: http.ProxyURL(&url.URL{
+					Scheme: "http",
+					Host:   proxy_server,
+				}),
+			},
+			Timeout: 5 * time.Second,
+		}
+
+		if _, err := client.Get("https://sunny.io/"); err != nil {
+			utils.Warn("💡 注意：代理自检未通过")
+		} else {
+			utils.Info("✓ 证书与网络链路正常")
+		}
+	}()
+
 	utils.Info("💡 服务正在运行，按 Ctrl+C 退出...")
 
 	// 启动时检查更新 - 已移动到 Run 函数开头
 
-	select {}
+	<-done
 }
 
 // GlobalHttpCallback 桥接到单例 app 实例
@@ -415,10 +445,10 @@ func (app *App) printTitle() {
 	color.Yellow("    微信视频号下载助手 v%s", app.Cfg.Version)
 	color.Yellow("    项目地址：https://github.com/nobiyou/wx_channel")
 	color.Green("    v%s 更新要点：", app.Cfg.Version)
-	color.Green("    • 核心升级 - 集成 Gopeed 引擎，支持断点续传/高并发")
-	color.Green("    • 限制移除 - 批量下载解除数量限制 (支持10万+)")
-	color.Green("    • 体验增强 - 实时进度显示 (45.2%%)，支持立即取消")
-	color.Green("    • 问题修复 - 取消直接保存csv，优化数据库写入")
+	color.Green("    • 性能质变 - 数据库WAL模式 + 自动清理，拒绝膨胀")
+	color.Green("    • 体验升级 - 积分记录服务端分页，流畅加载海量数据")
+	color.Green("    • 界面重构 - 适配 PrimeVue，完美支持移动端访问")
+	color.Green("    • 底层优化 - 修复内存泄漏，提升长连接稳定性")
 	fmt.Println()
 }
 
@@ -441,12 +471,16 @@ func (app *App) startWebSocketServer(wsPort int) {
 		mux.Handle("/api/", app.APIRouter)
 	}
 
-	wsHandler := websocket.NewHandler(app.WSHub)
+	wsHandler := websocket.NewHandler(app.WSHub, app.Cfg.AllowedOrigins, app.Cfg.SecretToken)
 	mux.HandleFunc("/ws/api", wsHandler.ServeHTTP)
 
 	mux.HandleFunc("/ws/health", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
-		w.Header().Set("Access-Control-Allow-Origin", "*")
+		origin := r.Header.Get("Origin")
+		if origin != "" {
+			w.Header().Set("Access-Control-Allow-Origin", origin)
+			w.Header().Set("Vary", "Origin")
+		}
 		hub := handlers.GetWebSocketHub()
 		json.NewEncoder(w).Encode(map[string]interface{}{
 			"status":  "ok",
@@ -463,4 +497,48 @@ func (app *App) startWebSocketServer(wsPort int) {
 	if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 		utils.Warn("WebSocket服务启动失败: %v", err)
 	}
+}
+
+// startMetricsServer 启动 Prometheus 监控服务器
+func (app *App) startMetricsServer() {
+	metricsAddr := fmt.Sprintf(":%d", app.Cfg.MetricsPort)
+	mux := http.NewServeMux()
+	mux.Handle("/metrics", promhttp.Handler())
+
+	utils.Info("✓ Prometheus 监控已启动: http://localhost%s/metrics", metricsAddr)
+
+	if err := http.ListenAndServe(metricsAddr, mux); err != nil {
+		utils.LogError("Prometheus 监控服务器启动失败: %v", err)
+	}
+}
+
+// configureLoadBalancer 配置负载均衡选择器
+func (app *App) configureLoadBalancer() {
+	strategy := app.Cfg.LoadBalancerStrategy
+	if strategy == "" {
+		strategy = "leastconn" // 默认使用最少连接
+	}
+
+	var selector websocket.ClientSelector
+
+	switch strategy {
+	case "roundrobin":
+		selector = websocket.NewRoundRobinSelector()
+		utils.Info("负载均衡策略: 轮询 (Round Robin)")
+	case "leastconn":
+		selector = websocket.NewLeastConnectionSelector()
+		utils.Info("负载均衡策略: 最少连接 (Least Connection)")
+	case "weighted":
+		// 加权选择器需要配置权重，这里使用默认权重
+		selector = websocket.NewWeightedSelector(nil)
+		utils.Info("负载均衡策略: 加权 (Weighted)")
+	case "random":
+		selector = websocket.NewRandomSelector()
+		utils.Info("负载均衡策略: 随机 (Random)")
+	default:
+		selector = websocket.NewLeastConnectionSelector()
+		utils.Warn("未知的负载均衡策略: %s, 使用默认策略: 最少连接", strategy)
+	}
+
+	app.WSHub.SetSelector(selector)
 }

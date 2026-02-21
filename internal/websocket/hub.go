@@ -23,6 +23,9 @@ type Hub struct {
 	requests   map[string]chan APICallResponse
 	requestsMu sync.RWMutex
 	reqSeq     uint64
+
+	// 负载均衡选择器
+	selector ClientSelector
 }
 
 // NewHub 创建新的 Hub
@@ -32,6 +35,7 @@ func NewHub() *Hub {
 		register:   make(chan *Client),
 		unregister: make(chan *Client),
 		requests:   make(map[string]chan APICallResponse),
+		selector:   NewLeastConnectionSelector(), // 默认使用最少连接选择器
 	}
 }
 
@@ -44,12 +48,12 @@ func (h *Hub) Run() {
 			h.clients[client] = true
 			h.lastClient = client // 记录最后注册的客户端
 			h.mu.Unlock()
-			utils.LogInfo("WebSocket 客户端已连接: %s", client.Conn.RemoteAddr().String())
+			utils.LogInfo("WebSocket 客户端已连接: %s", client.RemoteAddr)
 
 		case client := <-h.unregister:
 			h.mu.Lock()
 			if _, ok := h.clients[client]; ok {
-				addr := client.Conn.RemoteAddr().String()
+				addr := client.RemoteAddr
 				delete(h.clients, client)
 				client.Close()
 				// 如果注销的是最后一个客户端，清除引用
@@ -73,11 +77,17 @@ func (h *Hub) RegisterClient(client *Client) {
 	h.register <- client
 }
 
-// GetClient 获取一个可用的客户端（优先返回最后注册的客户端）
+// GetClient 获取一个可用的客户端（使用负载均衡选择器）
 func (h *Hub) GetClient() (*Client, error) {
 	h.mu.RLock()
 	defer h.mu.RUnlock()
 
+	// 使用负载均衡选择器选择客户端
+	if h.selector != nil {
+		return h.selector.Select(h.clients)
+	}
+
+	// 如果没有选择器，使用默认逻辑（向后兼容）
 	// 优先使用最后注册的客户端
 	if h.lastClient != nil {
 		if _, ok := h.clients[h.lastClient]; ok {
@@ -91,6 +101,13 @@ func (h *Hub) GetClient() (*Client, error) {
 	}
 
 	return nil, errors.New("no available client")
+}
+
+// SetSelector 设置负载均衡选择器
+func (h *Hub) SetSelector(selector ClientSelector) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	h.selector = selector
 }
 
 // ClientCount 返回当前连接的客户端数量
@@ -107,20 +124,26 @@ func (h *Hub) CallAPI(key string, body interface{}, timeout time.Duration) (json
 		return nil, err
 	}
 
+	// 增加活跃请求计数
+	client.IncrementActiveRequests()
+	defer client.DecrementActiveRequests()
+
 	// 生成请求 ID
 	id := atomic.AddUint64(&h.reqSeq, 1)
 	reqID := fmt.Sprintf("%d", id)
 
-	// 创建响应通道
-	respChan := make(chan APICallResponse, 1)
+	// 创建响应通道（增加缓冲区大小以防止阻塞）
+	respChan := make(chan APICallResponse, 2)
 	h.requestsMu.Lock()
 	h.requests[reqID] = respChan
 	h.requestsMu.Unlock()
 
+	// 确保清理响应通道
 	defer func() {
 		h.requestsMu.Lock()
 		delete(h.requests, reqID)
 		h.requestsMu.Unlock()
+		close(respChan) // 关闭通道防止泄漏
 	}()
 
 	// 构建请求消息
@@ -132,7 +155,8 @@ func (h *Hub) CallAPI(key string, body interface{}, timeout time.Duration) (json
 
 	reqData, err := json.Marshal(req)
 	if err != nil {
-		return nil, err
+		utils.LogError("序列化 API 请求失败: %v", err)
+		return nil, fmt.Errorf("marshal request failed: %w", err)
 	}
 
 	msg := WSMessage{
@@ -142,23 +166,42 @@ func (h *Hub) CallAPI(key string, body interface{}, timeout time.Duration) (json
 
 	msgData, err := json.Marshal(msg)
 	if err != nil {
-		return nil, err
+		utils.LogError("序列化 WebSocket 消息失败: %v", err)
+		return nil, fmt.Errorf("marshal message failed: %w", err)
 	}
+
+	// 记录请求开始时间
+	startTime := time.Now()
+	utils.LogInfo("发送 API 请求: ID=%s, Key=%s, Timeout=%v", reqID, key, timeout)
 
 	// 发送请求
 	if err := client.Send(msgData); err != nil {
-		return nil, err
+		utils.LogError("发送 API 请求失败: ID=%s, Error=%v", reqID, err)
+		return nil, fmt.Errorf("send request failed: %w", err)
 	}
 
 	// 等待响应
 	select {
-	case resp := <-respChan:
-		if resp.ErrCode != 0 {
-			return nil, errors.New(resp.ErrMsg)
+	case resp, ok := <-respChan:
+		if !ok {
+			utils.LogError("响应通道已关闭: ID=%s", reqID)
+			return nil, errors.New("response channel closed")
 		}
+		
+		duration := time.Since(startTime)
+		if resp.ErrCode != 0 {
+			utils.LogError("API 调用失败: ID=%s, Duration=%v, ErrCode=%d, ErrMsg=%s", 
+				reqID, duration, resp.ErrCode, resp.ErrMsg)
+			return nil, fmt.Errorf("API error (code=%d): %s", resp.ErrCode, resp.ErrMsg)
+		}
+		
+		utils.LogInfo("API 调用成功: ID=%s, Duration=%v, DataSize=%d", 
+			reqID, duration, len(resp.Data))
 		return resp.Data, nil
+		
 	case <-time.After(timeout):
-		return nil, errors.New("request timeout")
+		utils.LogError("API 调用超时: ID=%s, Timeout=%v", reqID, timeout)
+		return nil, fmt.Errorf("request timeout after %v", timeout)
 	}
 }
 
@@ -169,12 +212,15 @@ func (h *Hub) handleAPIResponse(resp APICallResponse) {
 	h.requestsMu.RUnlock()
 
 	if ok {
+		// 使用 select 防止阻塞
 		select {
 		case respChan <- resp:
 			// 响应已发送
-		default:
-			// 响应通道已满（不应该发生）
+		case <-time.After(5 * time.Second):
+			utils.LogError("响应通道发送超时: ID=%s (可能接收方已超时)", resp.ID)
 		}
+	} else {
+		utils.LogWarn("未找到响应通道: ID=%s (可能已超时或已清理)", resp.ID)
 	}
 }
 

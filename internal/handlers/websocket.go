@@ -1,12 +1,16 @@
 package handlers
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
+	"strings"
 	"sync"
 	"time"
 
-	"github.com/gorilla/websocket"
+	"wx_channel/internal/config"
+
+	"github.com/coder/websocket"
 
 	"wx_channel/internal/database"
 	"wx_channel/internal/services"
@@ -63,6 +67,8 @@ type WebSocketClient struct {
 	conn     *websocket.Conn
 	send     chan []byte
 	id       string
+	ctx      context.Context
+	cancel   context.CancelFunc
 	closedMu sync.Mutex
 	closed   bool
 }
@@ -314,50 +320,23 @@ func (h *WebSocketHub) BroadcastStatsUpdate() {
 	}
 }
 
-// WebSocket 配置
-const (
-	// 允许写入消息到对端的时间
-	writeWait = 10 * time.Second
-
-	// 允许从对端读取下一个 pong 消息的时间
-	pongWait = 60 * time.Second
-
-	// 向对端发送 ping 的周期（必须小于 pongWait）
-	pingPeriod = (pongWait * 9) / 10
-
-	// 允许来自对端的最大消息大小
-	maxMessageSize = 512
-)
-
-// 支持 CORS 的 WebSocket 升级器
-var upgrader = websocket.Upgrader{
-	ReadBufferSize:  1024,
-	WriteBufferSize: 1024,
-	// 允许本地服务的所有来源
-	CheckOrigin: func(r *http.Request) bool {
-		return true
-	},
-}
-
 // readPump 将消息从 WebSocket 连接泵送到 Hub
 func (c *WebSocketClient) readPump() {
 	defer func() {
 		c.hub.unregister <- c
-		c.conn.Close()
+		c.cancel()
 	}()
 
-	c.conn.SetReadLimit(maxMessageSize)
-	c.conn.SetReadDeadline(time.Now().Add(pongWait))
-	c.conn.SetPongHandler(func(string) error {
-		c.conn.SetReadDeadline(time.Now().Add(pongWait))
-		return nil
-	})
-
 	for {
-		_, message, err := c.conn.ReadMessage()
+		ctx, cancel := context.WithTimeout(c.ctx, 90*time.Second)
+		_, message, err := c.conn.Read(ctx)
+		cancel()
+
 		if err != nil {
-			if websocket.IsUnexpectedCloseError(err, websocket.CloseGoingAway, websocket.CloseAbnormalClosure) {
-				utils.Warn("[WebSocket] Read error: %v", err)
+			if websocket.CloseStatus(err) != -1 {
+				utils.Info("[WebSocket] Client %s closed: %v", c.id, err)
+			} else {
+				utils.Warn("[WebSocket] Read error from %s: %v", c.id, err)
 			}
 			break
 		}
@@ -378,41 +357,50 @@ func (c *WebSocketClient) readPump() {
 
 // writePump 将消息从 Hub 泵送到 WebSocket 连接
 func (c *WebSocketClient) writePump() {
-	ticker := time.NewTicker(pingPeriod)
+	ticker := time.NewTicker(60 * time.Second) // ping 周期
 	defer func() {
 		ticker.Stop()
-		c.conn.Close()
+		c.cancel()
 	}()
 
 	for {
 		select {
 		case message, ok := <-c.send:
-			c.conn.SetWriteDeadline(time.Now().Add(writeWait))
 			if !ok {
 				// Hub 关闭了通道
-				c.conn.WriteMessage(websocket.CloseMessage, []byte{})
+				c.conn.Close(websocket.StatusNormalClosure, "closing")
 				return
 			}
 
-			// 将每条消息作为单独的 WebSocket 帧发送
-			// 这确保每个 JSON 消息可以独立解析
-			if err := c.conn.WriteMessage(websocket.TextMessage, message); err != nil {
+			ctx, cancel := context.WithTimeout(c.ctx, 10*time.Second)
+			err := c.conn.Write(ctx, websocket.MessageText, message)
+			cancel()
+
+			if err != nil {
 				return
 			}
 
-			// 将任何排队的消息作为单独的帧发送
+			// 将任何排队的消息发送
 			n := len(c.send)
 			for i := 0; i < n; i++ {
-				if err := c.conn.WriteMessage(websocket.TextMessage, <-c.send); err != nil {
+				ctx, cancel := context.WithTimeout(c.ctx, 10*time.Second)
+				err := c.conn.Write(ctx, websocket.MessageText, <-c.send)
+				cancel()
+				if err != nil {
 					return
 				}
 			}
 
 		case <-ticker.C:
-			c.conn.SetWriteDeadline(time.Now().Add(writeWait))
-			if err := c.conn.WriteMessage(websocket.PingMessage, nil); err != nil {
+			ctx, cancel := context.WithTimeout(c.ctx, 10*time.Second)
+			err := c.conn.Ping(ctx)
+			cancel()
+			if err != nil {
 				return
 			}
+
+		case <-c.ctx.Done():
+			return
 		}
 	}
 }
@@ -432,8 +420,26 @@ func NewWebSocketHandler() *WebSocketHandler {
 // HandleWebSocket 处理 WebSocket 连接升级
 // Endpoint: /ws
 func (h *WebSocketHandler) HandleWebSocket(w http.ResponseWriter, r *http.Request) {
-	// 将 HTTP 连接升级到 WebSocket
-	conn, err := upgrader.Upgrade(w, r, nil)
+	cfg := config.Get()
+	if cfg != nil && cfg.SecretToken != "" {
+		token := extractWSToken(r)
+		if token != cfg.SecretToken {
+			http.Error(w, "unauthorized", http.StatusUnauthorized)
+			return
+		}
+	}
+
+	// 构建 AcceptOptions（Origin 验证）
+	opts := &websocket.AcceptOptions{}
+	if cfg != nil && len(cfg.AllowedOrigins) > 0 {
+		opts.OriginPatterns = cfg.AllowedOrigins
+	} else {
+		// 默认允许所有来源（本地工具）
+		opts.InsecureSkipVerify = true
+	}
+
+	// 使用 coder/websocket 升级连接
+	conn, err := websocket.Accept(w, r, opts)
 	if err != nil {
 		utils.Warn("[WebSocket] Upgrade failed: %v", err)
 		return
@@ -441,12 +447,16 @@ func (h *WebSocketHandler) HandleWebSocket(w http.ResponseWriter, r *http.Reques
 
 	// 生成客户端 ID
 	clientID := generateClientID()
+	// 使用 Background context 而不是 r.Context()，避免 HTTP 请求结束时取消 WebSocket
+	ctx, cancel := context.WithCancel(context.Background())
 
 	client := &WebSocketClient{
-		hub:  h.hub,
-		conn: conn,
-		send: make(chan []byte, 256),
-		id:   clientID,
+		hub:    h.hub,
+		conn:   conn,
+		send:   make(chan []byte, 256),
+		id:     clientID,
+		ctx:    ctx,
+		cancel: cancel,
 	}
 
 	// 注册客户端
@@ -494,6 +504,20 @@ func (h *WebSocketHandler) HandleWebSocket(w http.ResponseWriter, r *http.Reques
 // generateClientID 生成唯一的客户端 ID
 func generateClientID() string {
 	return time.Now().Format("20060102150405.000000")
+}
+
+func extractWSToken(r *http.Request) string {
+	token := strings.TrimSpace(r.Header.Get("X-Local-Auth"))
+	if token != "" {
+		return token
+	}
+
+	auth := strings.TrimSpace(r.Header.Get("Authorization"))
+	if strings.HasPrefix(strings.ToLower(auth), "bearer ") {
+		return strings.TrimSpace(auth[len("Bearer "):])
+	}
+
+	return strings.TrimSpace(r.URL.Query().Get("token"))
 }
 
 // ServeWs 是用于处理 WebSocket 请求的便捷函数

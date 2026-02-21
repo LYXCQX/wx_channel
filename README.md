@@ -50,7 +50,7 @@
 
 ### Web 控制台界面
 
-访问 `https://dongzuren.com/wx_channel` 使用 Web 控制台：
+访问 `http://localhost:2025/console` 使用 Web 控制台：
 
 - **浏览记录**：查看和管理所有浏览过的视频
 - **下载记录**：查看历史下载记录和统计
@@ -63,6 +63,22 @@
 |  ![亮色](assets/liang.png)  | ![暗色](assets/an.png)  |
 
 > 💡 **提示**：更多功能说明请查看 [文档目录](docs/README.md) 和 [Web 控制台指南](docs/WEB_CONSOLE.md)
+
+### Hub 前端界面 (v5.5+)
+
+全新设计的 Hub 前端界面，提供更直观的数据看板和设备管理能力。服务端启动后访问 `http://localhost:8080` 使用：
+
+- **仪表盘 (Dashboard)**：实时监控设备在线状态、吞吐量及系统资源
+- **设备管理 (Devices)**：远程管理客户端设备，支持备注、分组及远程解绑
+- **任务中心 (Tasks)**：查看系统后台任务执行记录及状态
+- **个人中心 (Settings)**：管理账户积分、API 密钥及查看积分变动历史
+- **订阅管理 (Subscriptions)**：管理视频号订阅及自动下载策略
+
+| Hub 登录页 | Hub 仪表盘 |
+| --- | --- | 
+|  ![Hub Login](assets/hub_login.png)  | ![Hub Dashboard](assets/hub_dashboard.png)  |
+
+适配了电脑端和手机端页面，还有暗色和亮色主题。
 
 ~~我今天看服务器咋那么慢，一看上传下载116mb，然后一看记录，吓了一跳，原本是问了方便群友，1月2日整了10T，我的妈呀，我真的吓到了，web控制台不再开放，计划中的功能延后开发，或者是否开放，后面再说。~~
 
@@ -243,6 +259,26 @@ WX_CHANNEL_DOWNLOAD_TIMEOUT=30
 
 ## 📚 文档
 
+### 📖 用户文档
+所有使用相关的文档都在 `docs/` 目录：
+
+- **快速开始**: [安装指南](docs/INSTALLATION.md) | [配置说明](docs/CONFIGURATION.md)
+- **功能使用**: [批量下载](docs/BATCH_DOWNLOAD_GUIDE.md) | [监控功能](docs/MONITORING_QUICKSTART.md)
+- **测试指南**: [前端测试](docs/FRONTEND_TEST_GUIDE.md)
+- **故障排除**: [常见问题](docs/TROUBLESHOOTING.md)
+
+📖 **查看所有用户文档**: [docs/INDEX.md](docs/INDEX.md)
+
+### 🔧 开发文档
+所有开发相关的文档都在 `dev-docs/` 目录：
+
+- **修复历史**: [FIX_HISTORY.md](dev-docs/FIX_HISTORY.md) - 所有修复记录 ⭐
+- **完整文档**: [DOCUMENTATION.md](dev-docs/DOCUMENTATION.md) - 项目完整文档
+- **API 文档**: [api_documentation.md](dev-docs/api_documentation.md) - API 接口文档
+- **优化记录**: WebSocket、超时、性能等优化文档
+
+📖 **查看所有开发文档**: [dev-docs/INDEX.md](dev-docs/INDEX.md)
+
 ### 快速入门
 - [安装指南](docs/INSTALLATION.md) - 详细的安装步骤
 - [项目介绍](docs/INTRODUCTION.md) - 功能特性和工作原理
@@ -262,21 +298,27 @@ WX_CHANNEL_DOWNLOAD_TIMEOUT=30
 
 ---
 
-## 🎉 最新版本 v5.4.0
+## 🎉 最新版本 v5.5.5
 
-### 🚀 核心升级
+### 🚀 核心升级（v5.5.x 系列）
 
-- **Gopeed 引擎集成**：全新底层下载引擎，支持断点续传和高并发，下载更稳定。
-- **限制移除**：Profile 页、搜索页、Home 页批量下载的所有数量限制均已解除（支持 10万+）。
+在此大版本中，我们对底层架构进行了深度重构，重点提升了系统的**稳定性**、**安全性**和**性能**：
 
-### ✨ 新增功能
+- **架构重构**: 核心代码模块化拆分（API/Upload），全链路迁移至 `coder/websocket`，彻底解决长连接不稳定的历史难题。
+- **性能质变**: 
+  - 数据库开启 **WAL 模式**与**自动清理策略**（保留7天），高并发读写性能大幅提升，彻底解决数据库膨胀问题。
+  - 修复了 Goroutine/Timer 资源泄漏，系统资源占用降低 30%。
+- **安全加固**: 修复 SSRF、JWT 身份验证漏洞及并发竞争条件，构建企业级安全防线。
+- **体验跃升**: 
+  - 积分记录全面支持**服务端分页 (Lazy Loading)**，流畅加载海量历史数据。
+  - UI 视觉规范统一（适配 PrimeVue），全面优化移动端布局与交互细节。
 
-- **实时进度**：UI 现在显示精确的下载百分比和大小（如 45.2% 15MB/30MB）。
-- **立即取消**：支持下载任务的立即中断。
-- **体验优化**：增加导出下载记录的功能，修复数据库错误，优化数据库写入。
+### ✨ 主要特性
 
+- **稳定下载**: 集成 Gopeed 引擎，支持高并发、断点续传与元数据自动修正。
+- **智能管理**: 完备的后台管理系统，支持设备远程控制、任务实时监控与用户权限管理。
+- **多端适配**: 响应式设计，完美支持 PC、平板与手机端访问。
 
-📝 **完整更新日志**：[版本更新说明](dev-docs/CHANGELOG.md)
 ## 💖 支持项目
 
 如果这个项目对你有帮助，欢迎：
@@ -370,4 +412,3 @@ WX_CHANNEL_DOWNLOAD_TIMEOUT=30
 <p align="center">
   Made with ❤️ by <a href="https://github.com/nobiyou">nobiyou</a>
 </p>
-

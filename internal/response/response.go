@@ -69,3 +69,24 @@ func ErrorWithStatus(w http.ResponseWriter, httpStatus int, code int, message st
 		Data:    nil,
 	})
 }
+
+// ToJSON 返回标准响应的 JSON 字节
+func ToJSON(code int, message string, data interface{}) []byte {
+	resp := Response{
+		Code:    code,
+		Message: message,
+		Data:    data,
+	}
+	b, _ := json.Marshal(resp)
+	return b
+}
+
+// SuccessJSON 返回成功的 JSON 字节
+func SuccessJSON(data interface{}) []byte {
+	return ToJSON(0, "success", data)
+}
+
+// ErrorJSON 返回错误的 JSON 字节
+func ErrorJSON(code int, message string) []byte {
+	return ToJSON(code, message, nil)
+}

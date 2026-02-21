@@ -4,7 +4,10 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
+	"net/netip"
+	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -16,6 +19,7 @@ import (
 	"wx_channel/internal/config"
 	"wx_channel/internal/database"
 	"wx_channel/internal/services"
+	"wx_channel/internal/utils"
 	"wx_channel/internal/websocket"
 )
 
@@ -30,6 +34,8 @@ type ConsoleAPIHandler struct {
 	searchService   *services.SearchService
 	wsHub           *websocket.Hub
 }
+
+const maxJSONBodyBytes = 8 << 20 // 8MB
 
 // NewConsoleAPIHandler 创建一个新的 ConsoleAPIHandler
 func NewConsoleAPIHandler(cfg *config.Config, wsHub *websocket.Hub) *ConsoleAPIHandler {
@@ -56,6 +62,15 @@ type APIResponse struct {
 	Data    interface{} `json:"data,omitempty"`
 	Error   string      `json:"error,omitempty"`
 	Message string      `json:"message,omitempty"`
+}
+
+type pathValidationError struct {
+	status int
+	msg    string
+}
+
+func (e *pathValidationError) Error() string {
+	return e.msg
 }
 
 // sendJSON 发送 JSON 响应
@@ -117,11 +132,14 @@ func (h *ConsoleAPIHandler) HandleCORS(w http.ResponseWriter, r *http.Request) b
 
 // parseJSON 解析 JSON 请求体
 func (h *ConsoleAPIHandler) parseJSON(r *http.Request, v interface{}) error {
-	body, err := io.ReadAll(r.Body)
+	body, err := io.ReadAll(io.LimitReader(r.Body, maxJSONBodyBytes+1))
 	if err != nil {
 		return err
 	}
 	defer r.Body.Close()
+	if int64(len(body)) > maxJSONBodyBytes {
+		return fmt.Errorf("request body too large")
+	}
 	return json.Unmarshal(body, v)
 }
 
@@ -636,7 +654,10 @@ func (h *ConsoleAPIHandler) HandleQueueFail(w http.ResponseWriter, r *http.Reque
 	var req struct {
 		Error string `json:"error"`
 	}
-	h.parseJSON(r, &req)
+	if err := h.parseJSON(r, &req); err != nil {
+		h.sendError(w, r, http.StatusBadRequest, "invalid request body")
+		return
+	}
 
 	errorMsg := req.Error
 	if errorMsg == "" {
@@ -1082,6 +1103,8 @@ func (h *ConsoleAPIHandler) HandleAPIRequest(w http.ResponseWriter, r *http.Requ
 		h.HandleFilesAPI(w, r)
 	case path == "/api/video/stream":
 		h.HandleVideoStream(w, r)
+	case path == "/api/video/play":
+		h.HandleVideoPlay(w, r)
 	default:
 		h.sendError(w, r, http.StatusNotFound, "endpoint not found")
 	}
@@ -1177,8 +1200,23 @@ func (h *ConsoleAPIHandler) HandleOpenFolder(w http.ResponseWriter, r *http.Requ
 		return
 	}
 
+	downloadsDir, err := h.getConfig().GetResolvedDownloadsDir()
+	if err != nil {
+		h.sendError(w, r, http.StatusInternalServerError, "failed to resolve downloads directory")
+		return
+	}
+	absPath, err := validatePathInBase(downloadsDir, req.Path, true)
+	if err != nil {
+		if pe, ok := err.(*pathValidationError); ok {
+			h.sendError(w, r, pe.status, pe.msg)
+			return
+		}
+		h.sendError(w, r, http.StatusInternalServerError, "failed to validate path")
+		return
+	}
+
 	// 在文件管理器中打开文件夹
-	if err := openFileExplorer(req.Path); err != nil {
+	if err := openFileExplorer(absPath); err != nil {
 		h.sendError(w, r, http.StatusInternalServerError, err.Error())
 		return
 	}
@@ -1201,8 +1239,27 @@ func (h *ConsoleAPIHandler) HandlePlayVideo(w http.ResponseWriter, r *http.Reque
 		return
 	}
 
+	downloadsDir, err := h.getConfig().GetResolvedDownloadsDir()
+	if err != nil {
+		h.sendError(w, r, http.StatusInternalServerError, "failed to resolve downloads directory")
+		return
+	}
+	absPath, err := validatePathInBase(downloadsDir, req.Path, false)
+	if err != nil {
+		if pe, ok := err.(*pathValidationError); ok {
+			h.sendError(w, r, pe.status, pe.msg)
+			return
+		}
+		h.sendError(w, r, http.StatusInternalServerError, "failed to validate path")
+		return
+	}
+	if !isAllowedVideoExtension(absPath) {
+		h.sendError(w, r, http.StatusBadRequest, "unsupported video file extension")
+		return
+	}
+
 	// 使用默认播放器播放视频
-	if err := openWithDefaultApp(req.Path); err != nil {
+	if err := openWithDefaultApp(absPath); err != nil {
 		h.sendError(w, r, http.StatusInternalServerError, err.Error())
 		return
 	}
@@ -1235,19 +1292,34 @@ func (h *ConsoleAPIHandler) CORSMiddleware(next http.Handler) http.Handler {
 
 // openFileExplorer 在系统文件管理器中打开包含该文件的文件夹
 func openFileExplorer(filePath string) error {
-	// 获取包含文件的目录
-	dir := filepath.Dir(filePath)
+	info, err := os.Stat(filePath)
+	if err != nil {
+		return err
+	}
+	isDir := info.IsDir()
+	dir := filePath
+	if !isDir {
+		dir = filepath.Dir(filePath)
+	}
 
 	var cmd *exec.Cmd
 	switch runtime.GOOS {
 	case "windows":
-		// 在 Windows 上，使用 explorer 打开文件夹并选择文件
-		// 转换为 Windows 路径格式 (反斜杠)
-		winPath := filepath.FromSlash(filePath)
-		cmd = exec.Command("explorer", "/select,", winPath)
+		if isDir {
+			cmd = exec.Command("explorer", filepath.FromSlash(dir))
+		} else {
+			// 在 Windows 上，使用 explorer 打开文件夹并选择文件
+			// 转换为 Windows 路径格式 (反斜杠)
+			winPath := filepath.FromSlash(filePath)
+			cmd = exec.Command("explorer", "/select,", winPath)
+		}
 	case "darwin":
-		// 在 macOS 上，使用 open -R 在 Finder 中显示文件
-		cmd = exec.Command("open", "-R", filePath)
+		// 在 macOS 上，对目录直接 open，对文件使用 open -R 显示文件
+		if isDir {
+			cmd = exec.Command("open", dir)
+		} else {
+			cmd = exec.Command("open", "-R", filePath)
+		}
 	default:
 		// 在 Linux 上，使用 xdg-open 打开文件夹
 		cmd = exec.Command("xdg-open", dir)
@@ -1296,31 +1368,28 @@ func (h *ConsoleAPIHandler) HandleVideoStream(w http.ResponseWriter, r *http.Req
 		return
 	}
 
-	// 安全检查：确保路径在允许的目录内
-	// 转换为绝对路径并检查是否存在
-	absPath, err := filepath.Abs(filePath)
+	downloadsDir, err := h.getConfig().GetResolvedDownloadsDir()
 	if err != nil {
-		h.sendError(w, r, http.StatusBadRequest, "invalid path")
+		h.sendError(w, r, http.StatusInternalServerError, "failed to resolve downloads directory")
 		return
 	}
-
-	// 检查文件是否存在
-	fileInfo, err := os.Stat(absPath)
-	if os.IsNotExist(err) {
-		h.sendError(w, r, http.StatusNotFound, "file not found")
+	resolvedPath, err := validatePathInBase(downloadsDir, filePath, false)
+	if err != nil {
+		if pe, ok := err.(*pathValidationError); ok {
+			h.sendError(w, r, pe.status, pe.msg)
+			return
+		}
+		h.sendError(w, r, http.StatusInternalServerError, "failed to validate path")
 		return
 	}
+	fileInfo, err := os.Stat(resolvedPath)
 	if err != nil {
 		h.sendError(w, r, http.StatusInternalServerError, "failed to access file")
 		return
 	}
-	if fileInfo.IsDir() {
-		h.sendError(w, r, http.StatusBadRequest, "path is a directory")
-		return
-	}
 
 	// 打开文件
-	file, err := os.Open(absPath)
+	file, err := os.Open(resolvedPath)
 	if err != nil {
 		h.sendError(w, r, http.StatusInternalServerError, "failed to open file")
 		return
@@ -1328,7 +1397,7 @@ func (h *ConsoleAPIHandler) HandleVideoStream(w http.ResponseWriter, r *http.Req
 	defer file.Close()
 
 	// 根据文件扩展名确定内容类型
-	ext := strings.ToLower(filepath.Ext(absPath))
+	ext := strings.ToLower(filepath.Ext(resolvedPath))
 	contentType := "application/octet-stream"
 	switch ext {
 	case ".mp4":
@@ -1398,5 +1467,249 @@ func (h *ConsoleAPIHandler) HandleVideoStream(w http.ResponseWriter, r *http.Req
 
 		// 复制整个文件
 		io.Copy(w, file)
+	}
+}
+
+// isPathWithinBase returns true when targetPath is within baseDir.
+func isPathWithinBase(baseDir, targetPath string) bool {
+	rel, err := filepath.Rel(baseDir, targetPath)
+	if err != nil {
+		return false
+	}
+	if rel == "." {
+		return true
+	}
+	if rel == ".." {
+		return false
+	}
+	if strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+		return false
+	}
+	return !filepath.IsAbs(rel)
+}
+
+func validatePathInBase(baseDir, targetPath string, allowDir bool) (string, error) {
+	absPath, err := filepath.Abs(targetPath)
+	if err != nil {
+		return "", &pathValidationError{status: http.StatusBadRequest, msg: "invalid path"}
+	}
+
+	absBaseDir, err := filepath.Abs(baseDir)
+	if err != nil {
+		return "", &pathValidationError{status: http.StatusInternalServerError, msg: "failed to resolve downloads directory"}
+	}
+	realBaseDir, err := filepath.EvalSymlinks(absBaseDir)
+	if err != nil {
+		realBaseDir = absBaseDir
+	}
+
+	if !isPathWithinBase(realBaseDir, absPath) {
+		return "", &pathValidationError{status: http.StatusForbidden, msg: "access to path outside downloads directory is forbidden"}
+	}
+
+	info, err := os.Stat(absPath)
+	if os.IsNotExist(err) {
+		return "", &pathValidationError{status: http.StatusNotFound, msg: "file not found"}
+	}
+	if err != nil {
+		return "", &pathValidationError{status: http.StatusInternalServerError, msg: "failed to access file"}
+	}
+	if !allowDir && info.IsDir() {
+		return "", &pathValidationError{status: http.StatusBadRequest, msg: "path is a directory"}
+	}
+
+	realPath, err := filepath.EvalSymlinks(absPath)
+	if err != nil {
+		realPath = absPath
+	}
+	if !isPathWithinBase(realBaseDir, realPath) {
+		return "", &pathValidationError{status: http.StatusForbidden, msg: "access to path outside downloads directory is forbidden"}
+	}
+
+	return realPath, nil
+}
+
+func isAllowedVideoExtension(path string) bool {
+	switch strings.ToLower(filepath.Ext(path)) {
+	case ".mp4", ".webm", ".ogg", ".ogv", ".mov", ".avi", ".mkv":
+		return true
+	default:
+		return false
+	}
+}
+
+// validateVideoPlayTargetURL validates upstream video URL and blocks local/private targets.
+func validateVideoPlayTargetURL(rawURL string) (string, error) {
+	u, err := url.Parse(rawURL)
+	if err != nil {
+		return "", fmt.Errorf("invalid target URL")
+	}
+
+	if u.Scheme != "http" && u.Scheme != "https" {
+		return "", fmt.Errorf("only http/https URLs are allowed")
+	}
+	if u.Host == "" || u.Hostname() == "" {
+		return "", fmt.Errorf("invalid target URL")
+	}
+	if u.User != nil {
+		return "", fmt.Errorf("URL userinfo is not allowed")
+	}
+
+	host := strings.ToLower(u.Hostname())
+	if host == "localhost" || strings.HasSuffix(host, ".localhost") || strings.HasSuffix(host, ".local") {
+		return "", fmt.Errorf("local addresses are not allowed")
+	}
+
+	if ip, err := netip.ParseAddr(host); err == nil {
+		if ip.IsLoopback() || ip.IsPrivate() || ip.IsLinkLocalUnicast() || ip.IsLinkLocalMulticast() || ip.IsMulticast() || ip.IsUnspecified() {
+			return "", fmt.Errorf("local/private addresses are not allowed")
+		}
+	}
+
+	if ips, err := net.LookupIP(host); err == nil && len(ips) > 0 {
+		for _, ip := range ips {
+			if addr, ok := netip.AddrFromSlice(ip); ok {
+				if addr.IsLoopback() || addr.IsPrivate() || addr.IsLinkLocalUnicast() || addr.IsLinkLocalMulticast() || addr.IsMulticast() || addr.IsUnspecified() {
+					return "", fmt.Errorf("local/private addresses are not allowed")
+				}
+			}
+		}
+	}
+
+	return u.String(), nil
+}
+
+func newVideoProxyHTTPClient() *http.Client {
+	return &http.Client{
+		Timeout: 0, // 不设置超时，支持长时间流式传输
+		CheckRedirect: func(req *http.Request, via []*http.Request) error {
+			if _, err := validateVideoPlayTargetURL(req.URL.String()); err != nil {
+				return err
+			}
+			return nil
+		},
+	}
+}
+
+// HandleVideoPlay 处理 GET /api/video/play - 远程视频流式播放（支持加密解密）
+// 参数:
+//   - url: 视频源 URL（必需）
+//   - key: 解密密钥，uint64 格式（可选，仅用于加密视频）
+func (h *ConsoleAPIHandler) HandleVideoPlay(w http.ResponseWriter, r *http.Request) {
+	// Handle CORS preflight
+	if h.HandleCORS(w, r) {
+		return
+	}
+
+	if r.Method != "GET" && r.Method != "HEAD" {
+		h.sendError(w, r, http.StatusMethodNotAllowed, "method not allowed")
+		return
+	}
+
+	// 从查询参数获取视频 URL
+	targetURL := r.URL.Query().Get("url")
+	if targetURL == "" {
+		h.sendError(w, r, http.StatusBadRequest, "url parameter is required")
+		return
+	}
+
+	// 获取可选的解密密钥
+	decryptKeyStr := r.URL.Query().Get("key")
+	var decryptKey uint64
+	var needsDecryption bool
+
+	if decryptKeyStr != "" {
+		var err error
+		decryptKey, err = strconv.ParseUint(decryptKeyStr, 10, 64)
+		if err != nil {
+			h.sendError(w, r, http.StatusBadRequest, "invalid decryption key")
+			return
+		}
+		needsDecryption = true
+	}
+
+	validatedURL, err := validateVideoPlayTargetURL(targetURL)
+	if err != nil {
+		h.sendError(w, r, http.StatusBadRequest, err.Error())
+		return
+	}
+
+	// 创建上游请求
+	upstreamReq, err := http.NewRequest(r.Method, validatedURL, nil)
+	if err != nil {
+		h.sendError(w, r, http.StatusBadRequest, "invalid target URL")
+		return
+	}
+
+	// 复制 Range 头（支持视频拖动）
+	if rangeHeader := r.Header.Get("Range"); rangeHeader != "" {
+		upstreamReq.Header.Set("Range", rangeHeader)
+	}
+
+	// 发起上游请求
+	client := newVideoProxyHTTPClient()
+	upstreamResp, err := client.Do(upstreamReq)
+	if err != nil {
+		h.sendError(w, r, http.StatusBadGateway, "failed to fetch video: "+err.Error())
+		return
+	}
+	defer upstreamResp.Body.Close()
+
+	// 设置 CORS 头
+	h.setCORSHeaders(w, r)
+
+	// 复制上游响应头
+	for k, v := range upstreamResp.Header {
+		w.Header()[k] = v
+	}
+
+	// 确保设置 Accept-Ranges
+	if w.Header().Get("Accept-Ranges") == "" {
+		w.Header().Set("Accept-Ranges", "bytes")
+	}
+
+	// 如果需要解密
+	if needsDecryption {
+		// 解析 Content-Range 头以获取起始偏移
+		var startOffset uint64 = 0
+		if cr := upstreamResp.Header.Get("Content-Range"); cr != "" {
+			// Content-Range 格式: "bytes start-end/total"
+			parts := strings.Split(cr, " ")
+			if len(parts) == 2 {
+				rangePart := parts[1]
+				dashIdx := strings.Index(rangePart, "-")
+				if dashIdx > 0 {
+					if v, err := strconv.ParseUint(rangePart[:dashIdx], 10, 64); err == nil {
+						startOffset = v
+					}
+				}
+			}
+		}
+
+		// 创建解密读取器
+		// 加密区域大小为 131072 字节（128KB）
+		decryptReader := utils.NewDecryptReader(upstreamResp.Body, decryptKey, startOffset, 131072)
+
+		// 写入状态码
+		w.WriteHeader(upstreamResp.StatusCode)
+
+		// 如果是 HEAD 请求，不传输内容
+		if r.Method == "HEAD" {
+			return
+		}
+
+		// 流式复制解密后的数据到客户端
+		io.Copy(w, decryptReader)
+	} else {
+		// 无需解密，直接代理
+		w.WriteHeader(upstreamResp.StatusCode)
+
+		// 如果是 HEAD 请求，不传输内容
+		if r.Method == "HEAD" {
+			return
+		}
+
+		// 流式复制数据到客户端
+		io.Copy(w, upstreamResp.Body)
 	}
 }

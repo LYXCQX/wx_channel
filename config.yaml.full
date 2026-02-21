@@ -1,0 +1,149 @@
+# 微信视频号下载助手 - 完整配置文件
+# 包含所有可配置选项及其说明
+
+# ==================== 基础配置 ====================
+
+# 服务端口
+port: 2025
+
+# 下载目录
+download_dir: downloads
+
+# 记录文件名
+records_file: download_records.csv
+
+# 证书文件名
+cert_file: SunnyRoot.cer
+
+# ==================== 云端管理功能 ====================
+
+# 是否启用云端管理功能（Hub Server 集中管理）
+# true: 启用，客户端会连接到 Hub Server，支持远程管理
+# false: 禁用，客户端独立运行，不连接 Hub Server
+cloud_enabled: true
+
+# Hub Server 的 WebSocket 地址
+cloud_hub_url: "ws://wx.dujulaoren.com/ws/client"
+
+# 云端通信密钥（可选，用于加密通信）
+cloud_secret: ""
+
+# 设备标识（自动生成，请勿手动修改）
+machine_id: ""
+
+# 绑定令牌（从 Hub Server 获取）
+bind_token: ""
+
+# ==================== 下载配置 ====================
+
+# 下载并发数
+download_concurrency: 5
+
+# 下载重试次数
+download_retry_count: 3
+
+# 是否启用断点续传
+download_resume_enabled: true
+
+# 下载超时时间（分钟）
+download_timeout: 30
+
+# ==================== 上传配置 ====================
+
+# 最大重试次数
+max_retries: 3
+
+# 分片大小（字节）
+chunk_size: 2097152  # 2MB
+
+# 最大上传大小（字节）
+max_upload_size: 67108864  # 64MB
+
+# 缓冲区大小（字节）
+buffer_size: 65536  # 64KB
+
+# 上传分片并发数
+upload_chunk_concurrency: 4
+
+# 上传合并并发数
+upload_merge_concurrency: 1
+
+# ==================== 日志配置 ====================
+
+# 日志文件路径
+log_file: logs/wx_channel.log
+
+# 日志文件最大大小（MB）
+max_log_size_mb: 5
+
+# ==================== 功能开关 ====================
+
+# 是否保存页面快照
+save_page_snapshot: false
+
+# 是否保存搜索数据
+save_search_data: false
+
+# 是否保存页面 JS
+save_page_js: false
+
+# 是否显示日志按钮
+show_log_button: false
+
+# ==================== 性能优化配置 ====================
+
+# 负载均衡策略
+# 可选值: roundrobin, leastconn, weighted, random
+load_balancer_strategy: leastconn
+
+# 是否启用数据压缩
+compression_enabled: true
+
+# 压缩阈值（字节），小于此值不压缩
+compression_threshold: 1024  # 1KB
+
+# ==================== 监控配置 ====================
+
+# 是否启用 Prometheus 监控
+metrics_enabled: true
+
+# Prometheus 监控端口
+metrics_port: 9090
+
+# ==================== 安全配置 ====================
+
+# Web 控制台令牌
+web_console_token: "@dongzuren"
+
+# 允许的来源（CORS）
+allowed_origins:
+  - "*"
+
+# ==================== 时间配置 ====================
+
+# 证书安装延迟（秒）
+cert_install_delay: 3
+
+# 保存延迟（毫秒）
+save_delay: 500
+
+# ==================== 说明 ====================
+# 
+# 1. 云端管理功能 (cloud_enabled)
+#    - true: 客户端会连接到 Hub Server，支持远程管理、任务分发等
+#    - false: 客户端独立运行，不连接 Hub Server
+#    - 如果不需要集中管理，可以设置为 false 以节省资源
+#
+# 2. 配置优先级
+#    - 数据库配置 > 环境变量 > 配置文件 > 默认值
+#    - 环境变量格式: WX_CHANNEL_<KEY>，例如 WX_CHANNEL_PORT=2025
+#
+# 3. 性能调优
+#    - download_concurrency: 根据网络带宽调整，建议 3-10
+#    - compression_enabled: 网络较慢时建议启用
+#    - metrics_enabled: 生产环境建议启用以便监控
+#
+# 4. 安全建议
+#    - 修改 web_console_token 为复杂密码
+#    - 限制 allowed_origins 为可信来源
+#    - 定期更新 cloud_secret

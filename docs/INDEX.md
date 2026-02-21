@@ -11,6 +11,8 @@
 - [批量下载指南](BATCH_DOWNLOAD_GUIDE.md) - 批量下载完整功能说明
 - [评论采集](COMMENT_CAPTURE.md) - 评论采集功能使用
 - [Web 控制台](WEB_CONSOLE.md) - 浏览器控制台使用指南
+- [前端测试指南](FRONTEND_TEST_GUIDE.md) - 前端功能测试
+- [监控快速启动](MONITORING_QUICKSTART.md) - 监控功能快速启动
 
 ## 🔧 开发指南
 - [API 文档](API.md) - HTTP API 接口说明
@@ -33,6 +35,8 @@ docs/
 ├── BATCH_DOWNLOAD_GUIDE.md  # 批量下载指南
 ├── COMMENT_CAPTURE.md    # 评论采集
 ├── WEB_CONSOLE.md        # Web 控制台
+├── FRONTEND_TEST_GUIDE.md   # 前端测试指南
+├── MONITORING_QUICKSTART.md # 监控快速启动
 ├── TROUBLESHOOTING.md    # 故障排除
 ├── RELEASE_NOTES.md      # 版本说明
 ├── guides/               # 使用指南
@@ -41,4 +45,4 @@ docs/
 
 ---
 
-最后更新：2025-11-27
+最后更新：2026-02-08

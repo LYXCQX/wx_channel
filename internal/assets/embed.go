@@ -48,3 +48,6 @@ var UtilsJS []byte
 
 //go:embed inject/api_client.js
 var APIClientJS []byte
+
+//go:embed inject/keep_alive.js
+var KeepAliveJS []byte

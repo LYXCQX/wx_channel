@@ -16,6 +16,7 @@ import (
 
 	"wx_channel/internal/config"
 	"wx_channel/internal/database"
+	"wx_channel/internal/response"
 	"wx_channel/internal/services"
 	"wx_channel/internal/utils"
 
@@ -567,11 +568,23 @@ func (h *BatchHandler) downloadVideoOnce(ctx context.Context, task *BatchTask, f
 				if total > 0 {
 					task.SizeMB = fmt.Sprintf("%.2fMB", task.TotalMB)
 				}
+				
+				// 每10%输出一次日志
+				if int(task.Progress)%10 == 0 && task.Progress > 0 {
+					utils.Info("📊 [批量下载] %s 进度: %.1f%% (%.2f/%.2f MB)", 
+						task.Title, task.Progress, task.DownloadedMB, task.TotalMB)
+				}
 			}
 		}
 	}
 
-	err := h.gopeedService.DownloadSync(ctx, task.URL, filePath, onProgress)
+	// 获取单文件连接数配置
+	connections := 8 // 默认值
+	if h.getConfig() != nil && h.getConfig().DownloadConnections > 0 {
+		connections = h.getConfig().DownloadConnections
+	}
+
+	err := h.gopeedService.DownloadSync(ctx, task.URL, filePath, connections, onProgress)
 	if err != nil {
 		return err
 	}
@@ -998,30 +1011,29 @@ func (h *BatchHandler) HandleBatchClear(Conn *SunnyNet.HttpConn) bool {
 }
 
 // sendSuccessResponse 发送成功响应
-func (h *BatchHandler) sendSuccessResponse(Conn *SunnyNet.HttpConn, data map[string]interface{}) {
-	data["success"] = true
-
-	responseBytes, err := json.Marshal(data)
-	if err != nil {
-		h.sendErrorResponse(Conn, err)
-		return
-	}
-
+func (h *BatchHandler) sendSuccessResponse(Conn *SunnyNet.HttpConn, data interface{}) {
 	headers := http.Header{}
 	headers.Set("Content-Type", "application/json")
+	headers.Set("Cache-Control", "no-cache, no-store, must-revalidate")
+	headers.Set("Pragma", "no-cache")
+	headers.Set("Expires", "0")
 	headers.Set("X-Content-Type-Options", "nosniff")
-
-	// CORS - 允许所有来源（因为是本地服务）
-	origin := Conn.Request.Header.Get("Origin")
-	if origin != "" {
-		headers.Set("Access-Control-Allow-Origin", origin)
-		headers.Set("Vary", "Origin")
-		headers.Set("Access-Control-Allow-Headers", "Content-Type, X-Local-Auth")
-		headers.Set("Access-Control-Allow-Methods", "POST, GET, OPTIONS")
-		headers.Set("Access-Control-Max-Age", "86400") // 24小时
+	if h.getConfig() != nil && len(h.getConfig().AllowedOrigins) > 0 {
+		origin := Conn.Request.Header.Get("Origin")
+		if origin != "" {
+			for _, o := range h.getConfig().AllowedOrigins {
+				if o == origin {
+					headers.Set("Access-Control-Allow-Origin", origin)
+					headers.Set("Vary", "Origin")
+					headers.Set("Access-Control-Allow-Headers", "Content-Type, X-Local-Auth")
+					headers.Set("Access-Control-Allow-Methods", "POST, OPTIONS")
+					break
+				}
+			}
+		}
 	}
 
-	Conn.StopRequest(200, string(responseBytes), headers)
+	Conn.StopRequest(200, string(response.SuccessJSON(data)), headers)
 }
 
 // sendErrorResponse 发送错误响应
@@ -1029,17 +1041,19 @@ func (h *BatchHandler) sendErrorResponse(Conn *SunnyNet.HttpConn, err error) {
 	headers := http.Header{}
 	headers.Set("Content-Type", "application/json")
 	headers.Set("X-Content-Type-Options", "nosniff")
-
-	// CORS - 允许所有来源（因为是本地服务）
-	origin := Conn.Request.Header.Get("Origin")
-	if origin != "" {
-		headers.Set("Access-Control-Allow-Origin", origin)
-		headers.Set("Vary", "Origin")
-		headers.Set("Access-Control-Allow-Headers", "Content-Type, X-Local-Auth")
-		headers.Set("Access-Control-Allow-Methods", "POST, GET, OPTIONS")
-		headers.Set("Access-Control-Max-Age", "86400") // 24小时
+	if h.getConfig() != nil && len(h.getConfig().AllowedOrigins) > 0 {
+		origin := Conn.Request.Header.Get("Origin")
+		if origin != "" {
+			for _, o := range h.getConfig().AllowedOrigins {
+				if o == origin {
+					headers.Set("Access-Control-Allow-Origin", origin)
+					headers.Set("Vary", "Origin")
+					headers.Set("Access-Control-Allow-Headers", "Content-Type, X-Local-Auth")
+					headers.Set("Access-Control-Allow-Methods", "POST, OPTIONS")
+					break
+				}
+			}
+		}
 	}
-
-	errorMsg := fmt.Sprintf(`{"success":false,"error":"%s"}`, strings.ReplaceAll(err.Error(), `"`, `\"`))
-	Conn.StopRequest(500, errorMsg, headers)
+	Conn.StopRequest(500, string(response.ErrorJSON(500, err.Error())), headers)
 }

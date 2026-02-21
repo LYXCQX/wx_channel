@@ -34,11 +34,12 @@ type ScriptHandler struct {
 	eventbusJS      []byte
 	utilsJS         []byte
 	apiClientJS     []byte
+	keepAliveJS     []byte
 	version         string
 }
 
 // NewScriptHandler 创建脚本处理器
-func NewScriptHandler(cfg *config.Config, coreJS, decryptJS, downloadJS, homeJS, feedJS, profileJS, searchJS, batchDownloadJS, zipJS, fileSaverJS, mittJS, eventbusJS, utilsJS, apiClientJS []byte, version string) *ScriptHandler {
+func NewScriptHandler(cfg *config.Config, coreJS, decryptJS, downloadJS, homeJS, feedJS, profileJS, searchJS, batchDownloadJS, zipJS, fileSaverJS, mittJS, eventbusJS, utilsJS, apiClientJS, keepAliveJS []byte, version string) *ScriptHandler {
 	return &ScriptHandler{
 		coreJS:          coreJS,
 		decryptJS:       decryptJS,
@@ -54,6 +55,7 @@ func NewScriptHandler(cfg *config.Config, coreJS, decryptJS, downloadJS, homeJS,
 		eventbusJS:      eventbusJS,
 		utilsJS:         utilsJS,
 		apiClientJS:     apiClientJS,
+		keepAliveJS:     keepAliveJS,
 		version:         version,
 	}
 }
@@ -206,6 +208,9 @@ func (h *ScriptHandler) buildInjectedScripts(path string) string {
 	// API 客户端脚本 - 必须在其他脚本之前加载
 	apiClientScript := fmt.Sprintf(`<script>%s</script>`, string(h.apiClientJS))
 
+	// 页面保活脚本 - 防止页面休眠
+	keepAliveScript := fmt.Sprintf(`<script>%s</script>`, string(h.keepAliveJS))
+
 	// 模块化脚本 - 按依赖顺序加载
 	coreScript := fmt.Sprintf(`<script>%s</script>`, string(h.coreJS))
 	decryptScript := fmt.Sprintf(`<script>%s</script>`, string(h.decryptJS))
@@ -229,7 +234,7 @@ func (h *ScriptHandler) buildInjectedScripts(path string) string {
 	savePageContentScript := h.getSavePageContentScript()
 
 	// 基础脚本（所有页面都需要）
-	baseScripts := logPanelScript + mittScript + eventbusScript + utilsScript + apiClientScript + coreScript + decryptScript + downloadScript + batchDownloadScript + feedScript + profileScript + searchScript + homeScript + preloadScript + downloadTrackerScript + captureUrlScript + savePageContentScript
+	baseScripts := logPanelScript + mittScript + eventbusScript + utilsScript + apiClientScript + keepAliveScript + coreScript + decryptScript + downloadScript + batchDownloadScript + feedScript + profileScript + searchScript + homeScript + preloadScript + downloadTrackerScript + captureUrlScript + savePageContentScript
 
 	// 根据页面路径决定是否注入特定脚本
 	var pageSpecificScripts string
@@ -497,7 +502,7 @@ func (h *ScriptHandler) getDownloadTrackerScript() string {
 					const path = data.relativePath || data.path || '';
 					if (window.__wx_log) {
 						window.__wx_log({
-							msg: '✓ ' + msg + (path ? '\n路径: ' + path : '')
+							msg: '✓ ' + msg
 						});
 					}
 					console.log('✓ [封面下载] 封面已保存:', path);

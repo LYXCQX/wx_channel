@@ -155,6 +155,6 @@ var home_recommend_mounted = false;
 WXE.onPCFlowLoaded((feeds) => {
   if (home_recommend_mounted) return;
   home_recommend_mounted = true;
-  console.log("[eventbus.js]onPCFlowLoaded", feeds);
+  // console.log("[eventbus.js]onPCFlowLoaded", feeds);
   WXE.emit(WXE.Events.Feed, feeds[0]);
 });

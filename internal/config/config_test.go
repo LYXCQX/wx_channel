@@ -6,6 +6,7 @@ import (
 	"strings"
 	"testing"
 	"time"
+	"wx_channel/internal/version"
 
 	"github.com/spf13/viper"
 	"github.com/stretchr/testify/assert"
@@ -20,27 +21,31 @@ func cleanupEnv() {
 	}
 }
 
-func TestLoad_Defaults(t *testing.T) {
-	cleanupEnv()
+func setupIsolatedTestEnv(t *testing.T) {
+	t.Helper()
 	viper.Reset()
 	globalConfig = nil
+	cleanupEnv()
 
-	tmpHome := t.TempDir()
-	t.Setenv("HOME", tmpHome)
+	tmpDir := t.TempDir()
+	t.Setenv("HOME", tmpDir)
+	t.Chdir(tmpDir)
+}
+
+func TestLoad_Defaults(t *testing.T) {
+	setupIsolatedTestEnv(t)
 
 	cfg := Load()
 
 	assert.NotNil(t, cfg)
 	assert.Equal(t, 2025, cfg.Port)
-	assert.Equal(t, "5.3.0", cfg.Version)
+	assert.Equal(t, version.Current, cfg.Version)
 	assert.Equal(t, int64(2<<20), cfg.ChunkSize)
 	assert.Equal(t, 500*time.Millisecond, cfg.SaveDelay)
 }
 
 func TestLoad_EnvVars(t *testing.T) {
-	viper.Reset()
-	globalConfig = nil
-	cleanupEnv()
+	setupIsolatedTestEnv(t)
 
 	t.Setenv("WX_CHANNEL_PORT", "9999")
 	t.Setenv("WX_CHANNEL_LOG_FILE", "test.log")
@@ -52,9 +57,7 @@ func TestLoad_EnvVars(t *testing.T) {
 }
 
 func TestLoad_ConfigFile(t *testing.T) {
-	viper.Reset()
-	globalConfig = nil
-	cleanupEnv()
+	setupIsolatedTestEnv(t)
 
 	// 创建临时配置文件
 	tmpDir := t.TempDir()
