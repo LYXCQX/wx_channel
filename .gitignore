@@ -13,9 +13,8 @@ logs/
 
 # Web 控制台源代码（暂不公开）
 web/
-hub_server/frontend/
+# hub_server/frontend/
 hub_server/help.md
-
 # ==================== 压缩文件 ====================
 # 所有压缩文件
 *.zip

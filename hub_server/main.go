@@ -64,9 +64,13 @@ func main() {
 	// 2.5 启动积分矿工服务 (在线时长统计)
 	services.StartMiningService()
 
-	// 3. 创建路由器（全局 panic recovery）
+	// 2.6 初始化 API 指标采集
+	metricsStore := middleware.InitMetricsStore()
+
+	// 3. 创建路由器（全局 panic recovery + 指标采集）
 	router := mux.NewRouter()
 	router.Use(recoveryMiddleware)
+	router.Use(middleware.MetricsMiddleware(metricsStore))
 
 	// WebSocket 接入点（无需认证）
 	router.HandleFunc("/ws/client", hub.ServeWs).Methods("GET")

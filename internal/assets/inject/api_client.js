@@ -23,12 +23,12 @@ window.__wx_api_client = {
   // 设置页面可见性监听
   setupVisibilityHandler: function () {
     var self = this;
-    
+
     document.addEventListener('visibilitychange', function () {
       if (!document.hidden) {
         // 页面变为可见
         console.log('[API客户端] 📱 页面激活，检查连接状态...');
-        
+
         if (!self.connected) {
           console.log('[API客户端] 连接已断开，立即重连...');
           // 清除现有的重连定时器
@@ -47,24 +47,24 @@ window.__wx_api_client = {
         console.log('[API客户端] 📴 页面进入后台');
       }
     });
-    
+
     console.log('[API客户端] ✅ 页面可见性监听已启动');
   },
 
   // 设置页面关闭前的处理
   setupBeforeUnloadHandler: function () {
     var self = this;
-    
+
     window.addEventListener('beforeunload', function () {
       // 页面即将关闭，清理资源
       if (self.ws && self.connected) {
         self.ws.close(1000, 'Page unloading');
       }
-      
+
       if (self.heartbeatTimer) {
         clearInterval(self.heartbeatTimer);
       }
-      
+
       if (self.reconnectTimer) {
         clearTimeout(self.reconnectTimer);
       }
@@ -400,21 +400,21 @@ window.__wx_api_client = {
   // 启动心跳
   startHeartbeat: function () {
     var self = this;
-    
+
     // 清除旧的心跳定时器
     if (this.heartbeatTimer) {
       clearInterval(this.heartbeatTimer);
     }
-    
+
     // 重置心跳计数
     this.missedHeartbeats = 0;
     this.lastHeartbeatTime = Date.now();
-    
+
     // 每 30 秒发送一次心跳
     this.heartbeatTimer = setInterval(function () {
       self.sendHeartbeat();
     }, 30000);
-    
+
     console.log('[API客户端] ✅ 心跳已启动 (30秒间隔)');
   },
 
@@ -432,12 +432,12 @@ window.__wx_api_client = {
     if (!this.connected || !this.ws) {
       console.warn('[API客户端] 无法发送心跳：未连接');
       this.missedHeartbeats++;
-      
+
       // 连续 3 次心跳失败，触发重连
       if (this.missedHeartbeats >= 3) {
         console.error('[API客户端] 心跳连续失败，触发重连...');
         this.stopHeartbeat();
-        
+
         // 关闭当前连接
         if (this.ws) {
           try {
@@ -446,24 +446,24 @@ window.__wx_api_client = {
             // ignore
           }
         }
-        
+
         // 立即重连
         this.connected = false;
         this.connect();
       }
       return;
     }
-    
+
     try {
       var heartbeat = {
         type: 'ping',
         timestamp: Date.now()
       };
-      
+
       this.ws.send(JSON.stringify(heartbeat));
       this.lastHeartbeatTime = Date.now();
       this.missedHeartbeats = 0;
-      
+
       console.log('[API客户端] 💓 心跳已发送');
     } catch (err) {
       console.error('[API客户端] 发送心跳失败:', err);

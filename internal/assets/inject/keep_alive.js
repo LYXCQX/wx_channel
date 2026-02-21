@@ -67,7 +67,7 @@ window.__wx_keep_alive = {
             this.wakeLock.addEventListener('release', () => {
                 console.log('[页面保活] ⚠️ Wake Lock 已释放');
                 this.wakeLock = null;
-                
+
                 // 如果保活机制仍在运行，尝试重新获取
                 if (this.isActive) {
                     setTimeout(() => {
@@ -86,10 +86,10 @@ window.__wx_keep_alive = {
         // 每45秒触发一次活动（确保在 WebSocket 90秒超时之前有足够的活动）
         this.activityTimer = setInterval(() => {
             // 移除页面隐藏检测，始终保持活动
-            
+
             // 触发自定义事件
             const event = new CustomEvent('wx_keep_alive_ping', {
-                detail: { 
+                detail: {
                     timestamp: Date.now(),
                     heartbeats: this.stats.heartbeats,
                     isVisible: !document.hidden
@@ -115,7 +115,7 @@ window.__wx_keep_alive = {
             }
 
             this.stats.heartbeats++;
-            
+
             // 记录日志（降低频率，避免刷屏）
             if (this.stats.heartbeats % 10 === 0) {
                 console.log(`[页面保活] 💓 活动 #${this.stats.heartbeats} (页面${document.hidden ? '隐藏' : '可见'})`);
@@ -134,7 +134,7 @@ window.__wx_keep_alive = {
                 console.warn('[页面保活] ⚠️ 页面已隐藏（保活机制继续运行）');
             } else {
                 console.log('[页面保活] ✅ 页面已重新激活');
-                
+
                 // 页面重新可见时，尝试重新请求 Wake Lock
                 if (this.isActive && !this.wakeLock) {
                     this.requestWakeLock();
@@ -157,7 +157,7 @@ window.__wx_keep_alive = {
         // 每30秒更新一次（无视页面可见性）
         this.domActivityTimer = setInterval(() => {
             // 移除页面隐藏检测，始终执行
-            
+
             const marker = document.getElementById('__wx_keep_alive_marker');
             if (marker) {
                 marker.setAttribute('data-timestamp', Date.now());
@@ -175,7 +175,7 @@ window.__wx_keep_alive = {
         // 每2分钟发送一次心跳
         this.heartbeatTimer = setInterval(() => {
             // 移除页面隐藏检测，始终发送心跳
-            
+
             // 触发自定义事件，可以被其他模块监听
             const event = new CustomEvent('wx_keep_alive_heartbeat', {
                 detail: this.getStats()
@@ -187,7 +187,7 @@ window.__wx_keep_alive = {
 
             // 可选：发送到后端（如果需要）
             // this.sendHeartbeatToBackend();
-            
+
             console.log('[页面保活] 💗 心跳发送 (页面' + (document.hidden ? '隐藏' : '可见') + ')');
         }, 120000); // 2分钟
 
@@ -218,7 +218,7 @@ window.__wx_keep_alive = {
                 userAgent: navigator.userAgent,
                 url: window.location.href
             });
-            
+
             // 替换为实际的心跳接口
             // navigator.sendBeacon('/api/heartbeat', data);
         }
@@ -227,12 +227,12 @@ window.__wx_keep_alive = {
     // 定期刷新页面（最后的保活手段）
     startAutoRefresh: function () {
         // 每 10 分钟刷新一次页面，确保连接不会超时
-        const REFRESH_INTERVAL = 10  * 60 * 1000; // 10 分钟
-        
+        const REFRESH_INTERVAL = 10 * 60 * 1000; // 10 分钟
+
         this.refreshTimer = setInterval(() => {
             const now = Date.now();
             const timeSinceLastRefresh = now - this.lastRefreshTime;
-            
+
             // 只有在页面运行超过 5 分钟时才刷新
             if (timeSinceLastRefresh >= REFRESH_INTERVAL) {
                 this.performRefresh('定期刷新');
@@ -259,11 +259,11 @@ window.__wx_keep_alive = {
     performRefresh: function (reason) {
         reason = reason || '手动刷新';
         const now = Date.now();
-        
+
         this.stats.refreshCount++;
         console.warn(`[页面保活] 🔄 执行刷新: ${reason} (第 ${this.stats.refreshCount} 次)`);
         console.log('[页面保活] 刷新前统计:', this.getStats());
-        
+
         // 保存当前状态到 sessionStorage
         try {
             sessionStorage.setItem('__wx_keep_alive_stats', JSON.stringify({
@@ -274,7 +274,7 @@ window.__wx_keep_alive = {
         } catch (e) {
             console.error('[页面保活] 保存状态失败:', e);
         }
-        
+
         // 刷新页面
         window.location.reload();
     },
