@@ -167,3 +167,35 @@ func GenerateDecryptorArray(seed uint64, length int) []byte {
 	isaac := NewIsaac64(seed)
 	return isaac.Generate(length)
 }
+
+// Getter methods for DecryptReader integration
+
+// GetRandrsl returns the random result array
+func (i *Isaac64) GetRandrsl() [256]uint64 {
+	return i.randrsl
+}
+
+// GetRandcnt returns the random count
+func (i *Isaac64) GetRandcnt() uint64 {
+	return i.randcnt
+}
+
+// GetMm returns the memory array
+func (i *Isaac64) GetMm() [256]uint64 {
+	return i.mm
+}
+
+// GetAa returns the accumulator aa
+func (i *Isaac64) GetAa() uint64 {
+	return i.aa
+}
+
+// GetBb returns the accumulator bb
+func (i *Isaac64) GetBb() uint64 {
+	return i.bb
+}
+
+// GetCc returns the accumulator cc
+func (i *Isaac64) GetCc() uint64 {
+	return i.cc
+}

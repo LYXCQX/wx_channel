@@ -1,9 +1,9 @@
 package api
 
 import (
-	"encoding/json"
 	"net/http"
 
+	"wx_channel/internal/response"
 	"wx_channel/internal/services"
 )
 
@@ -23,20 +23,11 @@ func NewVersionAPI() *VersionAPI {
 func (api *VersionAPI) CheckUpdate(w http.ResponseWriter, r *http.Request) {
 	result, err := api.service.CheckUpdate()
 	if err != nil {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusInternalServerError)
-		json.NewEncoder(w).Encode(map[string]interface{}{
-			"success": false,
-			"error":   err.Error(),
-		})
+		response.Error(w, 500, err.Error())
 		return
 	}
 
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]interface{}{
-		"success": true,
-		"data":    result,
-	})
+	response.Success(w, result)
 }
 
 // RegisterRoutes 注册版本路由

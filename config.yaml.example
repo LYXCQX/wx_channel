@@ -1,0 +1,31 @@
+# 微信视频号下载助手 - 配置文件示例
+# 复制此文件为 config.yaml 并修改相应配置
+
+# === 云端管理功能 ===
+# 是否启用云端管理功能（Hub Server 集中管理）
+# true: 启用，客户端会连接到 Hub Server
+# false: 禁用，客户端独立运行
+cloud_enabled: true
+
+# === 设备标识 ===
+# 自动生成，用于在云端唯一标识此设备，请勿手动修改
+# 首次运行时会自动生成
+machine_id: ""
+
+# === 绑定令牌 ===
+# 用于绑定设备到用户账号
+# 从 Hub Server 获取
+bind_token: ""
+
+# === 云端服务器地址 ===
+# Hub Server 的 WebSocket 地址
+# 默认: ws://wx.dujulaoren.com/ws/client
+cloud_hub_url: "ws://wx.dujulaoren.com/ws/client"
+
+# === 云端通信密钥 ===
+# 用于加密通信（可选）
+cloud_secret: ""
+
+# === 其他配置 ===
+# 根据需要添加其他配置项
+# 详见完整配置文档

@@ -1,8 +1,13 @@
 package config
 
 import (
+	"crypto/md5"
 	"fmt"
+	"net"
+	"os"
 	"path/filepath"
+	"runtime"
+	"strings"
 	"time"
 
 	"wx_channel/internal/utils"
@@ -43,7 +48,8 @@ type Config struct {
 	// 并发与限流
 	UploadChunkConcurrency int           `mapstructure:"upload_chunk_concurrency"`
 	UploadMergeConcurrency int           `mapstructure:"upload_merge_concurrency"`
-	DownloadConcurrency    int           `mapstructure:"download_concurrency"`
+	DownloadConcurrency    int           `mapstructure:"download_concurrency"`    // 批量下载并发数（同时下载几个文件）
+	DownloadConnections    int           `mapstructure:"download_connections"`    // 单文件多线程连接数（每个文件用几个线程）
 	DownloadRetryCount     int           `mapstructure:"download_retry_count"`
 	DownloadResumeEnabled  bool          `mapstructure:"download_resume_enabled"`
 	DownloadTimeout        time.Duration `mapstructure:"download_timeout"`
@@ -59,6 +65,20 @@ type Config struct {
 
 	// UI 功能开关
 	ShowLogButton bool `mapstructure:"show_log_button"`
+
+	// 云端管理配置
+	CloudEnabled bool   `mapstructure:"cloud_enabled"` // 是否启用云端管理功能
+	CloudHubURL  string `mapstructure:"cloud_hub_url"` // 中央服务器地址 (e.g., ws://hub.example.com/ws/client)
+	CloudSecret  string `mapstructure:"cloud_secret"`  // 云端通信密钥
+	MachineID    string `mapstructure:"machine_id"`    // 机器学习 ID (用于在云端唯一标识此实例)
+	BindToken    string `mapstructure:"bind_token"`    // 临时绑定码
+
+	// 第二阶段优化配置
+	LoadBalancerStrategy string `mapstructure:"load_balancer_strategy"` // 负载均衡策略: roundrobin, leastconn, weighted, random
+	CompressionEnabled   bool   `mapstructure:"compression_enabled"`    // 是否启用数据压缩
+	CompressionThreshold int    `mapstructure:"compression_threshold"`  // 压缩阈值（字节），小于此值不压缩
+	MetricsEnabled       bool   `mapstructure:"metrics_enabled"`        // 是否启用 Prometheus 监控
+	MetricsPort          int    `mapstructure:"metrics_port"`           // Prometheus 监控端口
 }
 
 var globalConfig *Config
@@ -145,6 +165,16 @@ func loadConfig() *Config {
 	// 数据库加载覆盖（保持最高优先级）
 	loadFromDatabase(config)
 
+	// Fallback: 确保端口有效
+	if config.Port == 0 {
+		// 尝试使用 DefaultPort
+		if config.DefaultPort != 0 {
+			config.Port = config.DefaultPort
+		} else {
+			config.Port = 2025
+		}
+	}
+
 	return config
 }
 
@@ -168,7 +198,8 @@ func setDefaults() {
 
 	viper.SetDefault("upload_chunk_concurrency", 4)
 	viper.SetDefault("upload_merge_concurrency", 1)
-	viper.SetDefault("download_concurrency", 5)
+	viper.SetDefault("download_concurrency", 5)    // 批量下载并发数：同时下载5个文件
+	viper.SetDefault("download_connections", 8)    // 单文件连接数：每个文件用8个线程
 	viper.SetDefault("download_retry_count", 3)
 	viper.SetDefault("download_resume_enabled", true)
 	viper.SetDefault("download_timeout", 30*time.Minute)
@@ -180,6 +211,181 @@ func setDefaults() {
 	viper.SetDefault("save_search_data", false)
 	viper.SetDefault("save_page_js", false)
 	viper.SetDefault("show_log_button", false)
+
+	viper.SetDefault("cloud_enabled", false) // 默认不启用云端管理
+	viper.SetDefault("cloud_hub_url", "ws://wx.dujulaoren.com/ws/client")
+	viper.SetDefault("cloud_secret", "")
+	viper.SetDefault("machine_id", GetMachineID())
+
+	// 第二阶段优化默认值
+	viper.SetDefault("load_balancer_strategy", "leastconn")
+	viper.SetDefault("compression_enabled", true)
+	viper.SetDefault("compression_threshold", 1024) // 1KB
+	viper.SetDefault("metrics_enabled", true)
+	viper.SetDefault("metrics_port", 9090)
+}
+
+// GetMachineID 获取或生成唯一的机器 ID (稳定硬件特征码)
+func GetMachineID() string {
+	// 1. 尝试从配置文件读取已保存的 machine_id
+	if viper.IsSet("machine_id") {
+		savedID := viper.GetString("machine_id")
+		if savedID != "" && savedID != "GetMachineID()" {
+			return savedID
+		}
+	}
+
+	// 2. 使用增强型设备 ID 生成
+	deviceID, fp, err := LoadOrGenerateDeviceID()
+	if err != nil {
+		// 降级到旧方法
+		fmt.Printf("Warning: Failed to generate enhanced device ID: %v, using legacy method\n", err)
+		deviceID = generateHardwareIDLegacy()
+	}
+
+	// 3. 保存到 viper 配置（内存中）
+	viper.Set("machine_id", deviceID)
+
+	// 4. 手动更新配置文件，只添加/更新 machine_id 字段
+	configFile := viper.ConfigFileUsed()
+	if configFile == "" {
+		configFile = "config.yaml"
+	}
+
+	// 尝试读取现有配置文件
+	existingContent, err := os.ReadFile(configFile)
+	if err != nil {
+		// 配置文件不存在，创建精简版配置
+		simpleConfig := fmt.Sprintf(`# wx_channel 配置文件
+# 只包含常用配置项，其他配置将使用合理的默认值
+
+# === 核心配置 ===
+port: 2025                    # 服务端口
+download_dir: downloads       # 下载目录
+
+# === 云端管理 ===
+cloud_hub_url: ws://wx.dongzuren.com/ws/client
+cloud_secret: ""
+
+# === 设备标识 ===
+# 自动生成，用于在云端唯一标识此设备，请勿手动修改
+machine_id: %s
+
+# === 性能配置（可选）===
+download_concurrency: 5       # 下载并发数，可根据网络情况调整
+`, deviceID)
+
+		if err := os.WriteFile(configFile, []byte(simpleConfig), 0644); err != nil {
+			fmt.Printf("Warning: Failed to create config file: %v\n", err)
+		} else {
+			fmt.Printf("Created config file with enhanced device ID: %s\n", configFile)
+			if fp != nil {
+				fmt.Printf("Hardware fingerprint: %d MAC(s), CPU: %v, MB: %v, Disk: %v\n",
+					len(fp.MACAddresses),
+					fp.CPUInfo != "",
+					fp.MotherboardID != "",
+					fp.DiskSerial != "")
+			}
+		}
+		return deviceID
+	}
+
+	// 配置文件已存在，检查是否已有 machine_id
+	lines := strings.Split(string(existingContent), "\n")
+	machineIDExists := false
+	for i, line := range lines {
+		if strings.HasPrefix(strings.TrimSpace(line), "machine_id:") {
+			// 更新现有的 machine_id
+			lines[i] = fmt.Sprintf("machine_id: %s", deviceID)
+			machineIDExists = true
+			break
+		}
+	}
+
+	if !machineIDExists {
+		// 添加 machine_id 到配置文件
+		// 查找合适的位置插入（在 cloud_secret 之后）
+		insertIndex := -1
+		for i, line := range lines {
+			if strings.HasPrefix(strings.TrimSpace(line), "cloud_secret:") {
+				insertIndex = i + 1
+				break
+			}
+		}
+
+		if insertIndex == -1 {
+			// 如果找不到 cloud_secret，添加到文件末尾
+			lines = append(lines, "", "# === 设备标识 ===")
+			lines = append(lines, "# 自动生成，用于在云端唯一标识此设备，请勿手动修改")
+			lines = append(lines, fmt.Sprintf("machine_id: %s", deviceID))
+		} else {
+			// 在 cloud_secret 之后插入
+			newLines := make([]string, 0, len(lines)+3)
+			newLines = append(newLines, lines[:insertIndex]...)
+			newLines = append(newLines, "")
+			newLines = append(newLines, "# === 设备标识 ===")
+			newLines = append(newLines, "# 自动生成，用于在云端唯一标识此设备，请勿手动修改")
+			newLines = append(newLines, fmt.Sprintf("machine_id: %s", deviceID))
+			newLines = append(newLines, lines[insertIndex:]...)
+			lines = newLines
+		}
+	}
+
+	// 写回配置文件
+	updatedContent := strings.Join(lines, "\n")
+	if err := os.WriteFile(configFile, []byte(updatedContent), 0644); err != nil {
+		fmt.Printf("Warning: Failed to update config file: %v\n", err)
+	} else {
+		fmt.Printf("Enhanced device ID persisted: %s\n", deviceID)
+	}
+
+	return deviceID
+}
+
+// generateHardwareIDLegacy 生成基于硬件的唯一ID（旧方法，用于降级）
+func generateHardwareIDLegacy() string {
+	// 改进：获取所有网卡，不管是否激活，然后排序
+	var macAddrs []string
+	interfaces, err := net.Interfaces()
+	if err == nil {
+		for _, iface := range interfaces {
+			// 只排除回环地址，不排除未激活的网卡
+			// 这样即使网卡被禁用/启用，也不会影响ID生成
+			if iface.Flags&net.FlagLoopback == 0 && iface.HardwareAddr != nil {
+				addr := iface.HardwareAddr.String()
+				if addr != "" && addr != "00:00:00:00:00:00" {
+					macAddrs = append(macAddrs, addr)
+				}
+			}
+		}
+	}
+
+	// 排序所有MAC地址，确保稳定性
+	if len(macAddrs) > 0 {
+		// 使用字典序排序
+		var minMAC string
+		for i, mac := range macAddrs {
+			if i == 0 || mac < minMAC {
+				minMAC = mac
+			}
+		}
+
+		// 使用最小的 MAC 地址生成 ID
+		hostname, _ := os.Hostname()
+		raw := fmt.Sprintf("%s-%s-%s", minMAC, hostname, runtime.GOOS)
+		hash := md5.Sum([]byte(raw))
+		return fmt.Sprintf("MAC-%x", hash[:4])
+	}
+
+	// 如果拿不到硬件地址，使用主机名和操作系统
+	hostname, _ := os.Hostname()
+	if hostname == "" {
+		hostname = "unknown"
+	}
+
+	raw := fmt.Sprintf("%s-%s", hostname, runtime.GOOS)
+	hash := md5.Sum([]byte(raw))
+	return fmt.Sprintf("HOST-%x", hash[:4])
 }
 
 // loadFromDatabase 从数据库加载配置（优先级最高）
@@ -235,6 +441,20 @@ func loadFromDatabase(config *Config) {
 	}
 	if val, err := dbLoader.GetBool("show_log_button", config.ShowLogButton); err == nil {
 		config.ShowLogButton = val
+	}
+
+	// 云端配置
+	if val, err := dbLoader.GetBool("cloud_enabled", config.CloudEnabled); err == nil {
+		config.CloudEnabled = val
+	}
+	if val, err := dbLoader.Get("cloud_hub_url"); err == nil && val != "" {
+		config.CloudHubURL = val
+	}
+	if val, err := dbLoader.Get("cloud_secret"); err == nil && val != "" {
+		config.CloudSecret = val
+	}
+	if val, err := dbLoader.Get("machine_id"); err == nil && val != "" {
+		config.MachineID = val
 	}
 }
 

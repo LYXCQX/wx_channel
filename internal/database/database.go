@@ -12,8 +12,9 @@ import (
 
 // DB 是全局数据库实例
 var (
-	db   *sql.DB
-	once sync.Once
+	db          *sql.DB
+	initialized bool
+	initMu      sync.Mutex
 )
 
 // Config 包含数据库配置
@@ -21,38 +22,45 @@ type Config struct {
 	DBPath string
 }
 
-// Initialize 初始化数据库连接并运行迁移
+// Initialize 初始化数据库连接并运行迁移。
+// 如果之前初始化失败，允许重新尝试。
 func Initialize(cfg *Config) error {
-	var initErr error
-	once.Do(func() {
-		// 确保目录存在
-		dir := filepath.Dir(cfg.DBPath)
-		if err := os.MkdirAll(dir, 0755); err != nil {
-			initErr = fmt.Errorf("failed to create database directory: %w", err)
-			return
-		}
+	initMu.Lock()
+	defer initMu.Unlock()
 
-		// 打开数据库连接
-		var err error
-		db, err = sql.Open("sqlite3", cfg.DBPath+"?_foreign_keys=on&_journal_mode=WAL")
-		if err != nil {
-			initErr = fmt.Errorf("failed to open database: %w", err)
-			return
-		}
+	if initialized {
+		return nil
+	}
 
-		// 测试连接
-		if err := db.Ping(); err != nil {
-			initErr = fmt.Errorf("failed to ping database: %w", err)
-			return
-		}
+	// 确保目录存在
+	dir := filepath.Dir(cfg.DBPath)
+	if err := os.MkdirAll(dir, 0755); err != nil {
+		return fmt.Errorf("failed to create database directory: %w", err)
+	}
 
-		// 运行迁移
-		if err := runMigrations(); err != nil {
-			initErr = fmt.Errorf("failed to run migrations: %w", err)
-			return
-		}
-	})
-	return initErr
+	// 打开数据库连接
+	var err error
+	db, err = sql.Open("sqlite3", cfg.DBPath+"?_foreign_keys=on&_journal_mode=WAL")
+	if err != nil {
+		return fmt.Errorf("failed to open database: %w", err)
+	}
+
+	// 测试连接
+	if err := db.Ping(); err != nil {
+		db.Close()
+		db = nil
+		return fmt.Errorf("failed to ping database: %w", err)
+	}
+
+	// 运行迁移
+	if err := runMigrations(); err != nil {
+		db.Close()
+		db = nil
+		return fmt.Errorf("failed to run migrations: %w", err)
+	}
+
+	initialized = true
+	return nil
 }
 
 // GetDB 返回数据库实例
@@ -62,8 +70,13 @@ func GetDB() *sql.DB {
 
 // Close 关闭数据库连接
 func Close() error {
+	initMu.Lock()
+	defer initMu.Unlock()
 	if db != nil {
-		return db.Close()
+		err := db.Close()
+		db = nil
+		initialized = false
+		return err
 	}
 	return nil
 }

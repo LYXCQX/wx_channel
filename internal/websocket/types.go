@@ -36,7 +36,10 @@ type APICallResponse struct {
 
 // 搜索账号请求体
 type SearchContactBody struct {
-	Keyword string `json:"keyword"`
+	Keyword    string `json:"keyword"`
+	Type       int    `json:"type"`        // 1=User, 2=Live, 3=Video
+	NextMarker string `json:"next_marker"` // for pagination (lastBuff)
+	RequestId  string `json:"request_id"`
 }
 
 // 获取账号视频列表请求体

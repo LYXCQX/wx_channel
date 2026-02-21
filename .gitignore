@@ -13,7 +13,8 @@ logs/
 
 # Web 控制台源代码（暂不公开）
 web/
-
+# hub_server/frontend/  # 前端源码现在包含在版本控制中
+hub_server/help.md
 # ==================== 压缩文件 ====================
 # 所有压缩文件
 *.zip
@@ -71,6 +72,7 @@ $RECYCLE.BIN/
 # Visual Studio Code
 .vscode/
 *.code-workspace
+.agent
 
 # GoLand / IntelliJ IDEA
 .idea/
@@ -98,10 +100,20 @@ go.work
 go.work.sum
 
 # ==================== 配置文件 ====================
+# 配置文件（包含敏感信息）
+config.yaml
+
 # 本地配置文件（如果有）
 config.local.yaml
 config.local.json
 *.local.*
+
+# 配置备份文件
+config.yaml---
+config.yaml----
+config.yaml.backup
+config.yaml[0-9]
+config.yaml[0-9][0-9]
 
 # 环境变量文件
 .env
@@ -123,6 +135,17 @@ download_records.csv
 *.sqlite
 *.sqlite3
 
+# 数据库临时文件
+*.db-shm
+*.db-wal
+*.db-journal
+
+# ==================== 测试和脚本 ====================
+# 测试脚本目录
+scripts/
+
+# 测试文件应纳入版本控制（单元测试是源码的一部分）
+
 # ==================== 其他 ====================
 # 帮助输出
 help_output.txt
@@ -136,6 +159,9 @@ coverage.html
 *.prof
 *.pprof
 
+# 体积分析报告（临时文件）
+size_report.txt
+
 # ==================== 发版准备文件 ====================
 # 这些文件仅用于本地发版准备，不需要同步到 GitHub
 LINKS_FIXED.md
@@ -143,8 +169,9 @@ PRE_RELEASE_CHECKLIST.md
 READY_TO_RELEASE.md
 RELEASE_GUIDE.md
 RELEASE_v*.md
-cleanup_old_files.ps1
 GITHUB_RELEASE_STEPS.md
+PRE_UPLOAD_CHECKLIST.md
+UPLOAD_READY.md
 
 # 临时图片文件
 down.png
@@ -159,9 +186,18 @@ log.png
 # 此文件定义了不需要同步到 GitHub 的文件和目录
 # 
 # 主要排除：
-# - dev-docs/     开发文档（内部技术细节）
+# - dev-docs/     开发文档（内部技术细节）❌ 不上传
+# - config.yaml   配置文件（包含敏感信息）❌ 不上传
+# - scripts/      测试脚本目录 ❌ 不上传
 # - downloads/    下载的视频文件
 # - logs/         运行日志
 # - web/          Web 控制台源代码（暂不公开）
 # - *.zip         所有压缩文件
 # - *.exe         编译产物
+# - *.db          数据库文件
+# 
+# 包含的内容：
+# - docs/              用户文档 ✅
+# - README.md          项目主文档 ✅
+# - config.yaml.example 配置文件示例 ✅
+# - 源代码             所有源代码 ✅

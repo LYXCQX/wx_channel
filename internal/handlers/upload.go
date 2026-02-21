@@ -18,6 +18,7 @@ import (
 
 	"wx_channel/internal/config"
 	"wx_channel/internal/database"
+	"wx_channel/internal/response"
 	"wx_channel/internal/services"
 	"wx_channel/internal/utils" // Import websocket package
 	"wx_channel/internal/websocket"
@@ -234,15 +235,8 @@ func (h *UploadHandler) HandleInitUpload(Conn *SunnyNet.HttpConn) bool {
 		"success":  true,
 		"uploadId": uploadId,
 	}
-	responseBytes, err := json.Marshal(responseData)
-	if err != nil {
-		utils.HandleError(err, "生成响应JSON")
-		h.sendErrorResponse(Conn, err)
-		return true
-	}
-
-	utils.Info("✅ init_upload: 返回响应: %s", string(responseBytes))
-	h.sendJSONResponse(Conn, 200, responseBytes)
+	utils.Info("✅ init_upload: 返回响应: %v", responseData)
+	h.sendJSONResponse(Conn, 200, responseData)
 	return true
 }
 
@@ -616,15 +610,8 @@ func (h *UploadHandler) HandleCompleteUpload(Conn *SunnyNet.HttpConn) bool {
 		"path":    finalPath,
 		"size":    fileSize,
 	}
-	responseBytes, err := json.Marshal(responseData)
-	if err != nil {
-		utils.HandleError(err, "生成响应JSON")
-		h.sendErrorResponse(Conn, err)
-		return true
-	}
-
-	utils.Info("✅ complete_upload: 返回响应: %s", string(responseBytes))
-	h.sendJSONResponse(Conn, 200, responseBytes)
+	utils.Info("✅ complete_upload: 返回响应: %v", responseData)
+	h.sendJSONResponse(Conn, 200, responseData)
 	return true
 }
 
@@ -762,15 +749,8 @@ func (h *UploadHandler) HandleSaveVideo(Conn *SunnyNet.HttpConn) bool {
 		"path":    filePath,
 		"size":    fileSize,
 	}
-	responseBytes, err := json.Marshal(responseData)
-	if err != nil {
-		utils.HandleError(err, "生成响应JSON")
-		h.sendErrorResponse(Conn, err)
-		return true
-	}
-
-	utils.Info("✅ save_video: 返回响应: %s", string(responseBytes))
-	h.sendJSONResponse(Conn, 200, responseBytes)
+	utils.Info("✅ save_video: 返回响应: %v", responseData)
+	h.sendJSONResponse(Conn, 200, responseData)
 	return true
 }
 
@@ -1207,7 +1187,14 @@ func (h *UploadHandler) HandleDownloadVideo(Conn *SunnyNet.HttpConn) bool {
 	downloadCtx, downloadCancel := context.WithTimeout(ctx, 30*time.Minute)
 	defer downloadCancel()
 
-	err = h.gopeedService.DownloadSync(downloadCtx, req.VideoURL, tmpPath, onProgress)
+	// 获取单文件连接数配置
+	connections := 8 // 默认值
+	cfg := config.Get()
+	if cfg != nil && cfg.DownloadConnections > 0 {
+		connections = cfg.DownloadConnections
+	}
+
+	err = h.gopeedService.DownloadSync(downloadCtx, req.VideoURL, tmpPath, connections, onProgress)
 	if err != nil {
 		utils.Error("❌ [视频下载] Gopeed 下载失败: %v", err)
 		h.sendErrorResponse(Conn, fmt.Errorf("下载失败: %v", err))
@@ -1248,7 +1235,7 @@ func (h *UploadHandler) HandleDownloadVideo(Conn *SunnyNet.HttpConn) bool {
 	if needDecrypt {
 		statusMsg = " [已解密]"
 	}
-	utils.Info("✓ [视频下载] 视频已保存: %s (%.2f MB)%s", relativePath, fileSize, statusMsg)
+	utils.Info("✓ [视频下载] 视频已保存" + statusMsg)
 
 	// 保存下载记录
 	if h.downloadService != nil {
@@ -1623,8 +1610,7 @@ func (h *UploadHandler) HandleUploadStatus(Conn *SunnyNet.HttpConn) bool {
 	}
 
 	resp := map[string]interface{}{"success": true, "parts": parts}
-	b, _ := json.Marshal(resp)
-	h.sendJSONResponse(Conn, 200, b)
+	h.sendJSONResponse(Conn, 200, resp)
 	return true
 }
 
@@ -1650,11 +1636,16 @@ func (h *UploadHandler) sendSuccessResponse(Conn *SunnyNet.HttpConn) {
 			}
 		}
 	}
-	Conn.StopRequest(200, `{"success":true}`, headers)
+	Conn.StopRequest(200, string(response.SuccessJSON(nil)), headers)
 }
 
+// sendJSONResponse 发送JSON响应 (Assuming body is the Data part of standard response, or needs to be wrapped)
+// CAUTION: The existing callsites pass a full object like {"success": true, "uploadId": ...}.
+// We need to change the semantic. 'body' passed here should be treated as the 'Data' field content if we want consistent structure.
+// However, the existing callsites manually construct {"success": true...}. We should refactor callsites first?
+// Let's refactor sendJSONResponse to accept interface{} instead of []byte and encoding it.
 // sendJSONResponse 发送JSON响应
-func (h *UploadHandler) sendJSONResponse(Conn *SunnyNet.HttpConn, statusCode int, body []byte) {
+func (h *UploadHandler) sendJSONResponse(Conn *SunnyNet.HttpConn, statusCode int, data interface{}) {
 	headers := http.Header{}
 	headers.Set("Content-Type", "application/json")
 	headers.Set("Cache-Control", "no-cache, no-store, must-revalidate")
@@ -1675,7 +1666,22 @@ func (h *UploadHandler) sendJSONResponse(Conn *SunnyNet.HttpConn, statusCode int
 			}
 		}
 	}
-	Conn.StopRequest(statusCode, string(body), headers)
+
+	var respBytes []byte
+	if b, ok := data.([]byte); ok {
+		respBytes = b
+	} else {
+		var err error
+		respBytes, err = json.Marshal(data)
+		if err != nil {
+			utils.Error("JSON marshaling failed: %v", err)
+			// Fallback error
+			Conn.StopRequest(500, `{"success":false,"error":"internal_error"}`, headers)
+			return
+		}
+	}
+
+	Conn.StopRequest(statusCode, string(respBytes), headers)
 }
 
 // sendErrorResponse 发送错误响应
@@ -1697,8 +1703,7 @@ func (h *UploadHandler) sendErrorResponse(Conn *SunnyNet.HttpConn, err error) {
 			}
 		}
 	}
-	errorMsg := fmt.Sprintf(`{"success":false,"error":"%s"}`, err.Error())
-	Conn.StopRequest(500, errorMsg, headers)
+	Conn.StopRequest(500, string(response.ErrorJSON(500, err.Error())), headers)
 }
 
 // 注意：saveDownloadRecord 方法已被移除

@@ -4,7 +4,6 @@ import (
 	"database/sql"
 	"os"
 	"path/filepath"
-	"sync"
 	"testing"
 	"time"
 )
@@ -41,8 +40,8 @@ func setupTestDB(t *testing.T) func() {
 			db = nil
 		}
 		os.RemoveAll(tmpDir)
-		// 重置 once 以便下次初始化
-		once = sync.Once{}
+		// 重置初始化状态以便下次初始化
+		initialized = false
 	}
 }
 

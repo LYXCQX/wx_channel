@@ -1,6 +1,7 @@
 package utils
 
 import (
+	"crypto/rand"
 	"encoding/base64"
 	"fmt"
 	"io"
@@ -9,6 +10,17 @@ import (
 
 	"wx_channel/pkg/util"
 )
+
+// RandomString generates a random string of length n
+func RandomString(n int) string {
+	const letters = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
+	b := make([]byte, n)
+	rand.Read(b)
+	for i := range b {
+		b[i] = letters[b[i]%byte(len(letters))]
+	}
+	return string(b)
+}
 
 // DecryptFileInPlace performs in-place XOR decryption on a file
 func DecryptFileInPlace(filePath string, key string, decryptorPrefixStr string, prefixLenInput int) error {

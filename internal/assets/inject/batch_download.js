@@ -805,7 +805,7 @@ async function __batch_download_selected__() {
   __wx_batch_download_manager__.isDownloading = true;
   __wx_batch_download_manager__.stopSignal = false;
 
-  __wx_log({ msg: '🚀 开始下载 ' + formattedVideos.length + ' 个视频...' });
+  __wx_log({ msg: '🚀 开始批量下载 ' + formattedVideos.length + ' 个视频（后端并发）...' });
 
   // 显示进度和取消按钮
   var progressDiv = document.getElementById('batch-download-progress');
@@ -826,114 +826,196 @@ async function __batch_download_selected__() {
     cancelBtn.disabled = false;
   }
 
-  var downloadCount = 0;
-  var failCount = 0;
-  var skipCount = 0;
-
-  // 使用 async/await 方式，与 Profile 页面保持一致
-  for (var i = 0; i < formattedVideos.length; i++) {
-    // 检查取消信号
-    if (__wx_batch_download_manager__.stopSignal) {
-      __wx_log({ msg: '⏹️ 下载已取消，已完成 ' + i + '/' + formattedVideos.length });
-      break;
-    }
-
-    var video = formattedVideos[i];
-
-    // 更新进度
-    if (progressText) progressText.textContent = (i + 1) + '/' + formattedVideos.length;
-    if (progressBar) progressBar.style.width = ((i + 1) / formattedVideos.length * 100) + '%';
-
-    try {
-      // 构建下载请求（与 Profile 页面完全一致）
+  try {
+    // 构建批量下载请求数据
+    var batchVideos = formattedVideos.map(function(video) {
       var authorName = video.nickname || (video.contact && video.contact.nickname) || '未知作者';
-      var filename = video.title || video.id || String(Date.now());
       var resolution = '';
-      var width = 0, height = 0, fileFormat = '';
+      var width = 0, height = 0;
 
       if (video.spec && video.spec.length > 0) {
         var firstSpec = video.spec[0];
         width = firstSpec.width || 0;
         height = firstSpec.height || 0;
         resolution = width && height ? (width + 'x' + height) : '';
-        fileFormat = firstSpec.fileFormat || '';
       }
 
-      var requestData = {
-        videoUrl: video.url,
-        videoId: video.id || '',
-        title: filename,
+      return {
+        id: video.id || '',
+        url: video.url || '',
+        title: video.title || video.id || String(Date.now()),
         author: authorName,
         key: video.key || '',
-        forceSave: __wx_batch_download_manager__.forceRedownload,
-        resolution: resolution,
-        width: width,
-        height: height,
-        fileFormat: fileFormat
+        resolution: resolution
       };
+    });
 
-      // 创建 AbortController
-      var controller = new AbortController();
-      __wx_batch_download_manager__.abortController = controller;
+    // 调用后端批量下载接口
+    var response = await fetch('/__wx_channels_api/batch_start', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        videos: batchVideos,
+        forceRedownload: __wx_batch_download_manager__.forceRedownload
+      })
+    });
 
-      var response = await fetch('/__wx_channels_api/download_video', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(requestData),
-        signal: controller.signal
-      });
-
-      // 检查 HTTP 状态码
-      if (!response.ok) {
-        throw new Error('HTTP ' + response.status + ': ' + response.statusText);
-      }
-
-      var result = await response.json();
-
-      if (result.success) {
-        if (result.skipped) {
-          skipCount++;
-        } else {
-          downloadCount++;
-        }
-      } else {
-        failCount++;
-        console.error('[批量下载] 下载失败:', video.title, result.error || '未知错误');
-      }
-
-      // 每10个或最后一个时显示进度
-      if ((i + 1) % 10 === 0 || i === formattedVideos.length - 1) {
-        __wx_log({ msg: '📥 已处理 ' + (i + 1) + ' / ' + formattedVideos.length });
-      }
-
-      // 添加延迟避免请求过快（与 Profile 页面一致）
-      await WXU.sleep(300);
-
-    } catch (err) {
-      // 如果是取消导致的 AbortError，不计入失败
-      if (err.name === 'AbortError' || err.message === 'The user aborted a request.') {
-        console.log('[批量下载] 请求已手动取消:', video.title);
-        // 调用后端取消接口，确保后端任务被终止
-        try {
-          fetch('/__wx_channels_api/cancel_download', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ videoId: video.id || '' })
-          });
-        } catch (ignore) { }
-
-        // 确保后续循环也能退出
-        __wx_batch_download_manager__.stopSignal = true;
-      } else {
-        failCount++;
-        console.error('[批量下载] 下载出错:', video.title, err.message || err);
-      }
+    if (!response.ok) {
+      throw new Error('HTTP ' + response.status + ': ' + response.statusText);
     }
-  }
 
-  // 下载完成，重置状态
+    var result = await response.json();
+    
+    // 检查响应格式（兼容两种格式）
+    var data = result.data || result;
+    if (!result.success && result.code !== 0) {
+      throw new Error(result.error || result.message || '启动批量下载失败');
+    }
+
+    __wx_log({ msg: '✅ 批量下载已启动，并发数: ' + (data.concurrency || 5) });
+
+    // 等待100ms后立即查询一次进度（避免错过快速完成的下载）
+    await new Promise(function(resolve) { setTimeout(resolve, 100); });
+    
+    // 立即查询一次进度
+    try {
+      var progressRes = await fetch('/__wx_channels_api/batch_progress', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' }
+      });
+      if (progressRes.ok) {
+        var progressData = await progressRes.json();
+        var data = progressData.data || progressData;
+        if (progressData.success || progressData.code === 0 || data.total !== undefined) {
+          var total = data.total || 0;
+          var done = data.done || 0;
+          var failed = data.failed || 0;
+          
+          // 如果已经完成，直接显示结果并返回
+          if (total > 0 && done + failed >= total) {
+            __wx_log({ msg: '✅ 批量下载完成: 成功 ' + done + ' 个, 失败 ' + failed + ' 个' });
+            __reset_batch_download_ui__();
+            return;
+          }
+        }
+      }
+    } catch (e) {
+      console.error('[批量下载] 初始进度查询失败:', e);
+    }
+
+    // 开始轮询进度
+    var pollInterval = setInterval(async function() {
+      // 检查取消信号
+      if (__wx_batch_download_manager__.stopSignal) {
+        clearInterval(pollInterval);
+        // 调用取消接口
+        try {
+          await fetch('/__wx_channels_api/batch_cancel', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' }
+          });
+          __wx_log({ msg: '⏹️ 批量下载已取消' });
+        } catch (e) {
+          console.error('[批量下载] 取消失败:', e);
+        }
+        __reset_batch_download_ui__();
+        return;
+      }
+
+      try {
+        var progressRes = await fetch('/__wx_channels_api/batch_progress', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' }
+        });
+
+        if (progressRes.ok) {
+          var progressData = await progressRes.json();
+          console.log('[批量下载] 进度数据:', progressData);
+          
+          // 兼容两种响应格式
+          var data = progressData.data || progressData;
+          if (progressData.success || progressData.code === 0 || data.total !== undefined) {
+            var total = data.total || 0;
+            var done = data.done || 0;
+            var failed = data.failed || 0;
+            var running = data.running || 0;
+
+            console.log('[批量下载] 解析后:', { total: total, done: done, failed: failed, running: running });
+
+            // 更新进度显示
+            if (progressText) {
+              progressText.textContent = done + '/' + total;
+              if (running > 0) {
+                progressText.textContent += ' (并发: ' + running + ')';
+              }
+              
+              // 显示当前正在下载的任务的详细进度
+              if (data.currentTasks && data.currentTasks.length > 0) {
+                var currentTask = data.currentTasks[0];
+                if (currentTask.progress > 0) {
+                  progressText.textContent += ' - ' + currentTask.progress.toFixed(1) + '%';
+                }
+              }
+            }
+            if (progressBar) {
+              // 计算总体进度：已完成的 + 正在下载的平均进度
+              var overallProgress = 0;
+              if (total > 0) {
+                // 已完成的视频占比
+                overallProgress = (done / total) * 100;
+                
+                // 加上正在下载的视频的平均进度
+                if (data.currentTasks && data.currentTasks.length > 0) {
+                  var downloadingProgress = 0;
+                  for (var i = 0; i < data.currentTasks.length; i++) {
+                    downloadingProgress += (data.currentTasks[i].progress || 0);
+                  }
+                  // 平均进度
+                  var avgProgress = downloadingProgress / data.currentTasks.length;
+                  // 正在下载的视频占总数的比例
+                  var downloadingRatio = data.currentTasks.length / total;
+                  // 加到总进度中
+                  overallProgress += (avgProgress * downloadingRatio);
+                }
+              }
+              
+              progressBar.style.width = overallProgress + '%';
+              console.log('[批量下载] 进度条宽度:', overallProgress.toFixed(1) + '%');
+            }
+
+            // 检查是否完成
+            if (total > 0 && done + failed >= total && running === 0) {
+              clearInterval(pollInterval);
+              __wx_log({ msg: '✅ 批量下载完成: 成功 ' + done + ' 个, 失败 ' + failed + ' 个' });
+              __reset_batch_download_ui__();
+            }
+          } else {
+            console.warn('[批量下载] 无效的进度数据格式:', progressData);
+          }
+        } else {
+          console.error('[批量下载] 进度查询失败:', progressRes.status);
+        }
+      } catch (e) {
+        console.error('[批量下载] 轮询进度失败:', e);
+      }
+    }, 2000); // 每2秒轮询一次
+
+  } catch (err) {
+    __wx_log({ msg: '❌ 批量下载失败: ' + (err.message || err) });
+    console.error('[批量下载] 错误:', err);
+    __reset_batch_download_ui__();
+  }
+}
+
+// 重置批量下载UI状态
+function __reset_batch_download_ui__() {
   __wx_batch_download_manager__.isDownloading = false;
   __wx_batch_download_manager__.stopSignal = false;
+
+  var downloadBtn = document.getElementById('batch-download-btn');
+  var cancelBtn = document.getElementById('batch-cancel-btn');
+  var progressDiv = document.getElementById('batch-download-progress');
+  var progressBar = document.getElementById('batch-progress-bar');
 
   if (downloadBtn) {
     downloadBtn.textContent = '开始下载';
@@ -944,18 +1026,11 @@ async function __batch_download_selected__() {
     cancelBtn.style.display = 'none';
   }
 
-  // 延迟隐藏进度条（让用户看到完成状态）
+  // 延迟隐藏进度条
   setTimeout(function () {
     if (progressDiv) progressDiv.style.display = 'none';
     if (progressBar) progressBar.style.width = '0%';
-  }, 2000);
-
-  // 下载完成
-  var summaryMsg = '✅ 批量下载完成: 成功 ' + downloadCount + ' 个';
-  if (skipCount > 0) summaryMsg += ', 跳过 ' + skipCount + ' 个';
-  if (failCount > 0) summaryMsg += ', 失败 ' + failCount + ' 个';
-
-  __wx_log({ msg: summaryMsg });
+  }, 3000);
 }
 
 console.log('[batch_download.js] 通用批量下载模块加载完成');

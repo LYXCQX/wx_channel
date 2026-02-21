@@ -25,6 +25,7 @@ type APIRouter struct {
 	certificateService *api.CertificateService
 	versionService     *api.VersionAPI
 	allowedOrigins     []string
+	secretToken        string
 }
 
 // Handle implements Interceptor
@@ -58,12 +59,13 @@ func NewAPIRouter(cfg *config.Config, hub *websocket.Hub, sunny *SunnyNet.Sunny)
 		consoleHandler:     handlers.NewConsoleAPIHandler(cfg, hub),
 		searchService:      api.NewSearchService(hub),
 		systemService:      api.NewSystemService(),
-		logsService:        api.NewLogsService(),
+		logsService:        api.NewLogsService(cfg),
 		exportService:      api.NewExportAPI(),
 		proxyService:       api.NewProxyService(sunny, cfg.Port),
 		certificateService: api.NewCertificateService(sunny),
 		versionService:     api.NewVersionAPI(),
 		allowedOrigins:     cfg.AllowedOrigins,
+		secretToken:        cfg.SecretToken,
 	}
 
 	router.registerRoutes()
@@ -100,14 +102,28 @@ func (r *APIRouter) registerRoutes() {
 	// 设置管理
 	r.mux.HandleFunc("/api/settings", r.consoleHandler.HandleSettingsAPI)
 
+	// 健康检查
+	r.mux.HandleFunc("/api/health", r.consoleHandler.HandleHealth)
+
+	// 统计信息
+	r.mux.HandleFunc("/api/stats", r.consoleHandler.HandleStatsAPI)
+	r.mux.HandleFunc("/api/stats/", r.consoleHandler.HandleStatsAPI)
+
+	// 搜索
+	r.mux.HandleFunc("/api/search", r.consoleHandler.HandleSearch)
+
+	// 文件操作
+	r.mux.HandleFunc("/api/files/", r.consoleHandler.HandleFilesAPI)
+
 	// 系统信息
 
 	// 控制台 API - 导出功能
 	r.mux.HandleFunc("/api/export/browse", r.exportService.HandleExportBrowseHistory)
 	r.mux.HandleFunc("/api/export/downloads", r.exportService.HandleExportDownloadRecords)
 
-	// 控制台 API - 视频流代理
-	r.mux.HandleFunc("/api/video/", r.consoleHandler.HandleVideoStream)
+	// 控制台 API - 视频相关
+	r.mux.HandleFunc("/api/video/stream", r.consoleHandler.HandleVideoStream)
+	r.mux.HandleFunc("/api/video/play", r.consoleHandler.HandleVideoPlay)
 
 	// 控制台 API - 触发评论采集
 	r.mux.HandleFunc("/api/control/comment/start", r.consoleHandler.HandleStartCommentCollection)
@@ -132,6 +148,7 @@ func (r *APIRouter) Handler() http.Handler {
 		RecoveryMiddleware,
 		LoggerMiddleware,
 		CORSMiddleware(r.allowedOrigins),
+		AuthMiddleware(r.secretToken),
 	)
 }
 

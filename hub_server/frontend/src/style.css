@@ -1,0 +1,279 @@
+@import "tailwindcss";
+
+@theme {
+  --font-sans: 'Inter', sans-serif;
+  --font-serif: 'Lora', serif;
+
+  /* Map Tailwind colors to PrimeVue CSS Variables */
+  --color-primary: var(--p-primary-color);
+  --color-primary-contrast: var(--p-primary-contrast-color);
+  --color-primary-50: var(--p-primary-50);
+  --color-primary-100: var(--p-primary-100);
+  --color-primary-200: var(--p-primary-200);
+  --color-primary-300: var(--p-primary-300);
+  --color-primary-400: var(--p-primary-400);
+  --color-primary-500: var(--p-primary-500);
+  --color-primary-600: var(--p-primary-600);
+  --color-primary-700: var(--p-primary-700);
+  --color-primary-800: var(--p-primary-800);
+  --color-primary-900: var(--p-primary-900);
+  --color-primary-950: var(--p-primary-950);
+
+  --color-surface-0: var(--p-surface-0);
+  --color-surface-50: var(--p-surface-50);
+  --color-surface-100: var(--p-surface-100);
+  --color-surface-200: var(--p-surface-200);
+  --color-surface-300: var(--p-surface-300);
+  --color-surface-400: var(--p-surface-400);
+  --color-surface-500: var(--p-surface-500);
+  --color-surface-600: var(--p-surface-600);
+  --color-surface-700: var(--p-surface-700);
+  --color-surface-800: var(--p-surface-800);
+  --color-surface-900: var(--p-surface-900);
+  --color-surface-950: var(--p-surface-950);
+
+  /* Semantic Aliases */
+  --color-bg: var(--p-surface-50);
+  --color-text: var(--p-text-color);
+  --color-text-muted: var(--p-text-muted-color);
+  --color-card-bg: var(--p-content-background);
+
+  /* Refined Shadows */
+  --shadow-card: 0 1px 3px 0 rgba(0, 0, 0, 0.04), 0 1px 2px -1px rgba(0, 0, 0, 0.04);
+  --shadow-card-hover: 0 10px 15px -3px rgba(0, 0, 0, 0.06), 0 4px 6px -4px rgba(0, 0, 0, 0.04);
+  --shadow-neu: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
+  --shadow-neu-sm: 0 1px 3px 0 rgba(0, 0, 0, 0.1), 0 1px 2px 0 rgba(0, 0, 0, 0.06);
+  --shadow-neu-pressed: inset 0 2px 4px 0 rgba(0, 0, 0, 0.06);
+  --shadow-neu-btn: 0 4px 6px -1px rgba(var(--p-primary-rgb), 0.4), 0 2px 4px -1px rgba(var(--p-primary-rgb), 0.2);
+  /* Dark Mode Overrides */
+  --shadow-neu-btn-active: inset 0 2px 4px 0 rgba(0, 0, 0, 0.06);
+}
+
+:root.dark {
+  /* Override surface colors for dark mode */
+  --color-surface-0: var(--p-surface-900);
+  --color-surface-50: var(--p-surface-950);
+  --color-surface-100: var(--p-surface-800);
+  --color-surface-200: var(--p-surface-700);
+  --color-surface-300: var(--p-surface-600);
+  --color-surface-400: var(--p-surface-500);
+  --color-surface-500: var(--p-surface-400);
+  --color-surface-600: var(--p-surface-300);
+  --color-surface-700: var(--p-surface-200);
+  --color-surface-800: var(--p-surface-100);
+  --color-surface-900: var(--p-surface-50);
+  --color-surface-950: var(--p-surface-0);
+
+  --color-bg: var(--p-surface-950);
+  --color-text: var(--p-surface-0);
+  --color-text-muted: var(--p-surface-400);
+  --color-card-bg: var(--p-surface-900);
+
+  --shadow-card: 0 1px 3px 0 rgba(0, 0, 0, 0.5), 0 1px 2px -1px rgba(0, 0, 0, 0.5);
+  --shadow-card-hover: 0 10px 15px -3px rgba(0, 0, 0, 0.7), 0 4px 6px -4px rgba(0, 0, 0, 0.5);
+  --shadow-neu: 0 4px 6px -1px rgba(0, 0, 0, 0.5), 0 2px 4px -1px rgba(0, 0, 0, 0.3);
+  --shadow-neu-sm: 0 1px 3px 0 rgba(0, 0, 0, 0.5), 0 1px 2px 0 rgba(0, 0, 0, 0.3);
+
+  /* Adjust dot pattern for dark mode */
+  --bg-pattern-color: var(--p-surface-900);
+  --bg-pattern-dot: var(--p-surface-800);
+}
+
+/* Update bg-pattern to use variables */
+.bg-pattern {
+  background-color: var(--color-bg);
+  background-image: radial-gradient(circle, var(--p-surface-200) 1px, transparent 1px);
+  background-size: 24px 24px;
+}
+
+:root.dark .bg-pattern {
+  background-image: radial-gradient(circle, var(--p-surface-800) 1px, transparent 1px);
+}
+
+/* Unified card styling */
+.card {
+  background-color: var(--color-surface-0);
+  border-radius: 1rem;
+  padding: 1.5rem;
+  border: 1px solid var(--p-surface-100);
+  box-shadow: var(--shadow-card);
+  transition: box-shadow 0.3s ease, transform 0.3s ease;
+}
+
+.card:hover {
+  box-shadow: var(--shadow-card-hover);
+}
+
+.card-lg {
+  border-radius: 1.5rem;
+  padding: 2rem;
+}
+
+/* Scrollbar hide utility */
+.scrollbar-hide::-webkit-scrollbar {
+  display: none;
+}
+
+.scrollbar-hide {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+
+/* Animate fade-in-up */
+@keyframes fade-in-up {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.animate-fade-in-up {
+  animation: fade-in-up 0.4s ease-out both;
+}
+
+/* ═══════════════════════════════════════
+   Global Dialog Styles (Moved from Admin.vue)
+   ═══════════════════════════════════════ */
+.p-dialog {
+  border-radius: 1.25rem !important;
+  overflow: hidden;
+  box-shadow: 0 25px 60px -12px rgba(0, 0, 0, 0.18) !important;
+  border: 1px solid var(--p-surface-100) !important;
+}
+
+.p-dialog .p-dialog-header {
+  padding: 1.5rem 1.5rem 0.75rem !important;
+  border-bottom: none !important;
+  background: var(--p-surface-0) !important;
+}
+
+.p-dialog .p-dialog-content {
+  padding: 0 1.5rem 1.5rem !important;
+  background: var(--p-surface-0) !important;
+}
+
+.p-dialog .p-dialog-header-actions .p-button {
+  width: 2rem !important;
+  height: 2rem !important;
+  border-radius: 0.5rem !important;
+  color: var(--p-text-muted-color) !important;
+}
+
+.p-dialog .p-dialog-header-actions .p-button:hover {
+  background: var(--p-surface-100) !important;
+}
+
+/* InputNumber Styling */
+.p-dialog .p-inputnumber .p-inputnumber-input {
+  border-radius: 0.75rem !important;
+  font-size: 0.9375rem !important;
+  padding: 0.75rem 1rem !important;
+  border-color: var(--p-surface-200) !important;
+}
+
+.p-dialog .p-inputnumber .p-inputnumber-input:focus {
+  border-color: var(--p-primary-color) !important;
+  box-shadow: 0 0 0 3px rgba(var(--p-primary-500), 0.1) !important;
+}
+
+.p-dialog .p-inputnumber-button-group .p-button {
+  border-radius: 0 !important;
+}
+
+.p-dialog .p-inputnumber-button-group .p-button:first-child {
+  border-top-right-radius: 0.75rem !important;
+}
+
+.p-dialog .p-inputnumber-button-group .p-button:last-child {
+  border-bottom-right-radius: 0.75rem !important;
+}
+
+/* ConfirmDialog Styling */
+.p-confirmdialog {
+  max-width: 420px;
+}
+
+.p-confirmdialog .p-dialog-header {
+  padding: 1.25rem 1.5rem 0.5rem !important;
+}
+
+.p-confirmdialog .p-dialog-title {
+  font-size: 1rem !important;
+  font-weight: 700 !important;
+  color: var(--p-text-color) !important;
+}
+
+.p-confirmdialog .p-dialog-content {
+  padding: 0.75rem 1.5rem 1.25rem !important;
+}
+
+.p-confirmdialog .p-confirmdialog-message {
+  font-size: 0.875rem !important;
+  color: var(--p-text-muted-color) !important;
+  line-height: 1.6 !important;
+  margin-left: 0.75rem !important;
+}
+
+.p-confirmdialog .p-confirmdialog-icon {
+  font-size: 1.25rem !important;
+}
+
+.p-confirmdialog .p-confirmdialog-icon.pi-exclamation-triangle {
+  color: #ef4444 !important;
+  background: rgba(239, 68, 68, 0.1);
+  width: 2.5rem;
+  height: 2.5rem;
+  border-radius: 0.75rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.p-confirmdialog .p-confirmdialog-icon.pi-info-circle {
+  color: #f59e0b !important;
+  background: rgba(245, 158, 11, 0.1);
+  width: 2.5rem;
+  height: 2.5rem;
+  border-radius: 0.75rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.p-confirmdialog .p-confirmdialog-icon.pi-trash {
+  color: #ef4444 !important;
+  /* added for delete actions */
+  background: rgba(239, 68, 68, 0.1);
+  width: 2.5rem;
+  height: 2.5rem;
+  border-radius: 0.75rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.p-confirmdialog .p-dialog-footer {
+  padding: 0 1.5rem 1.25rem !important;
+  border-top: none !important;
+  background: var(--p-surface-0) !important;
+  gap: 0.5rem;
+}
+
+.p-confirmdialog .p-dialog-footer .p-button {
+  border-radius: 0.625rem !important;
+  font-size: 0.8125rem !important;
+  font-weight: 600 !important;
+  padding: 0.5rem 1.25rem !important;
+  min-width: 5rem;
+}
+
+/* Overlay Mask */
+.p-dialog-mask {
+  backdrop-filter: blur(4px) !important;
+  background: rgba(0, 0, 0, 0.25) !important;
+}

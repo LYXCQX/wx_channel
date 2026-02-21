@@ -8,16 +8,25 @@ import (
 	"strconv"
 	"strings"
 
+	"wx_channel/internal/config"
 	"wx_channel/internal/response"
 	"wx_channel/internal/utils"
 )
 
 // LogsService 日志服务
-type LogsService struct{}
+type LogsService struct {
+	logFile string
+}
 
 // NewLogsService 创建日志服务
-func NewLogsService() *LogsService {
-	return &LogsService{}
+func NewLogsService(cfg *config.Config) *LogsService {
+	logFile := "logs/wx_channel.log"
+	if cfg != nil && strings.TrimSpace(cfg.LogFile) != "" {
+		logFile = strings.TrimSpace(cfg.LogFile)
+	}
+	return &LogsService{
+		logFile: logFile,
+	}
 }
 
 // LogEntry 日志条目结构 (用于解析 JSON 日志)
@@ -30,16 +39,23 @@ type LogEntry struct {
 }
 
 // getLogFilePath 获取日志文件路径
-// 假设日志文件路径固定为 "logs/wx_channel.log"，在 logger.go 中定义
-// TODO: 应该从配置中获取
 func (s *LogsService) getLogFilePath() string {
+	if s == nil {
+		return filepath.Join(".", "logs", "wx_channel.log")
+	}
+
+	// 已经是绝对路径时直接使用
+	if filepath.IsAbs(s.logFile) {
+		return s.logFile
+	}
+
 	// 获取可执行文件所在目录
 	baseDir, err := utils.GetBaseDir()
 	if err != nil {
 		// 如果获取失败，回退到当前目录
-		return filepath.Join(".", "logs", "wx_channel.log")
+		return filepath.Join(".", s.logFile)
 	}
-	return filepath.Join(baseDir, "logs", "wx_channel.log")
+	return filepath.Join(baseDir, s.logFile)
 }
 
 // GetLogs 获取日志内容 (倒序，支持行数限制)
