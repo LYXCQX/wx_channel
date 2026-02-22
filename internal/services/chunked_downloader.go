@@ -177,8 +177,11 @@ func (d *ChunkedDownloader) downloadItem(ctx context.Context, state *DownloadSta
 		lastDownloadedSize = downloaded
 	}
 	
+	// 获取下载连接数配置
+	connections := 8 // 默认值
+	
 	// 调用 Gopeed 同步下载
-	err = d.gopeedService.DownloadSync(ctx, item.VideoURL, downloadPath, onProgress)
+	err = d.gopeedService.DownloadSync(ctx, item.VideoURL, downloadPath, connections, onProgress)
 	if err != nil {
 		// 检查是否被取消/暂停
 		if ctx.Err() != nil {
